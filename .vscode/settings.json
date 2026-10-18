@@ -1,0 +1,12 @@
+{
+  "cmake.cmakePath": "C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+  "cmake.generator": "Visual Studio 18 2026",
+  "cmake.platform": "x64",
+  "cmake.configureArgs": [
+    "-DCMAKE_TOOLCHAIN_FILE=C:/Users/acer/Downloads/vcpkg/scripts/buildsystems/vcpkg.cmake",
+    "-DVCPKG_TARGET_TRIPLET=x64-windows",
+    "-DwxWidgets_DIR=C:/Users/acer/Downloads/vcpkg/installed/x64-windows/share/wxwidgets"
+  ],
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  "C_Cpp.default.cppStandard": "c++17"
+}

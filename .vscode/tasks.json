@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "TaraShuttle: Configure CMake",
+      "type": "shell",
+      "command": "C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+      "args": [
+        "-S", "${workspaceFolder}", "-B", "${workspaceFolder}/build",
+        "-G", "Visual Studio 18 2026", "-A", "x64",
+        "-DCMAKE_TOOLCHAIN_FILE=C:/Users/acer/Downloads/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "-DVCPKG_TARGET_TRIPLET=x64-windows",
+        "-DwxWidgets_DIR=C:/Users/acer/Downloads/vcpkg/installed/x64-windows/share/wxwidgets"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "TaraShuttle: Build Release",
+      "type": "shell",
+      "command": "C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+      "args": ["--build", "${workspaceFolder}/build", "--config", "Release"],
+      "dependsOn": "TaraShuttle: Configure CMake",
+      "dependsOrder": "sequence",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$msCompile"]
+    }
+  ]
+}

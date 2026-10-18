@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "TaraShuttle (MSVC x64)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/Release/TaraShuttle.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "TaraShuttle: Build Release",
+      "console": "externalTerminal"
+    }
+  ]
+}
