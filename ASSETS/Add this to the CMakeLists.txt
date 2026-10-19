@@ -1,0 +1,5 @@
+# Add to your CMakeLists.txt (replace YourTargetName with your executable target).
+# Copies the assets folder next to the built exe after every build.
+add_custom_command(TARGET YourTargetName POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:YourTargetName>/assets)
