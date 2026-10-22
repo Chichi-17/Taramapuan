@@ -1,0 +1,102 @@
+// MainFrame.h  -  TaraMapuan main window
+//
+// RECONSTRUCTED from MainFrame.cpp and the page files (I have not seen your
+// original header). Everything marked  // NEW  is required by the new pages.
+// If your real MainFrame.h has more members, structs or Build*Page helpers,
+// MERGE the NEW lines into it instead of replacing it.
+#pragma once
+
+#include <wx/wx.h>
+#include <wx/scrolwin.h>
+
+#include <string>
+#include <utility>
+#include <vector>
+
+// Types used below that I could not see and that you most likely already have
+// (UiHelpers.h / your own header): ReservationRecord, the schedule record type,
+// IsActiveReservation(), ReservationConfig(), Utf8(), W(), kCanvas, kNavy, ...
+// Keep your versions of those. Minimal shapes are shown for reference only.
+#ifdef TARAMAPUAN_STANDALONE_TYPES
+struct ReservationRecord {
+    std::string id, passenger, studentId, route, departure, seat;
+    std::string paymentMethod, paymentStatus, status, paymentReference, boardingStatus;
+    int seatCount = 1;
+    int scheduleIndex = -1;
+};
+struct ScheduleRecord {          // your struct probably has more fields
+    int capacity = 20;
+    int availableSeats = 20;
+    std::string status = "Available";
+};
+#endif
+
+enum class Page {
+    Landing, RoleSelect, Login, Dashboard,
+    StudentDashboard, Reserve, Reservations, Routes,
+    Schedules, Passengers, Drivers, DriverDashboard,
+    AssignedTrips, DigitalPass, Manifest, Monitoring,
+    Boarding, TripHistory, Payments, Reports, Settings,
+
+    // NEW - passenger flow pages
+    Profile,
+    FindRoute,
+    PassengerDashboard,
+    ReservationConfirmation
+};
+
+enum class UserRole { None, Student, Driver };
+
+class MainFrame : public wxFrame {
+public:
+    MainFrame();
+
+private:
+    // ---- persistence -------------------------------------------------------
+    void LoadReservations();
+    void SaveReservations() const;
+
+    // ---- page host / navigation ---------------------------------------------
+    wxScrolledWindow* StartPage(const wxString& title, const wxString& subtitle);
+    void ShowPage(Page page);
+    void RefreshCurrentPage();
+    void UpdateNavigationStyle();
+    void RebuildNavigation();
+    wxWindow* BuildPage(Page page);          // switch over every Page value
+
+    // ---- page builders ---------------------------------------------------------
+    wxScrolledWindow* BuildLandingPage();    // LandingPage.cpp           (NEW)
+    wxWindow* BuildFindRoutePage();          // FindRoute.cpp             (NEW)
+    wxWindow* BuildPassengerDashboard();     // PassengerDashboard.cpp    (NEW)
+    wxWindow* BuildMyReservationPage();      // MyReservationPage.cpp     (NEW)
+    wxWindow* BuildDigitalPassPage();        // DigitalPass.cpp           (NEW)
+    wxWindow* BuildProfilePage();            // Profile.cpp               (NEW)
+    wxWindow* BuildDriverDashboard();        // DriverDashboard.cpp       (NEW, optional)
+    // ... your other existing Build*Page helpers stay here ...
+
+    // ---- window chrome ---------------------------------------------------------
+    wxPanel*          m_sidebar    = nullptr;
+    wxScrolledWindow* m_navScroll  = nullptr;
+    wxBoxSizer*       m_navSizer   = nullptr;
+    wxStaticText*     m_pageTitle  = nullptr;
+    wxStaticText*     m_pageSubtitle = nullptr;
+    wxPanel*          m_pageHost   = nullptr;
+    wxBoxSizer*       m_pageSizer  = nullptr;
+    std::vector<std::pair<Page, wxButton*>> m_navigation;
+
+    // ---- session / selection state ------------------------------------------------
+    Page        m_currentPage  = Page::Landing;
+    UserRole    m_userRole     = UserRole::None;
+    UserRole    m_selectedRole = UserRole::None;
+    std::string m_currentUserId;
+    int         m_selectedSchedule = -1;
+    std::string m_selectedReservationId;
+
+    // ---- data (types come from your existing headers) ----------------------------
+    // std::vector<ReservationRecord> m_reservations;
+    // std::vector<ScheduleRecord>    m_schedules;
+    // long                           m_reservationSequence = 24100;
+    //
+    // ^ keep YOUR existing declarations of these three members. They are commented
+    //   out here only because their struct types are defined in your own headers.
+};

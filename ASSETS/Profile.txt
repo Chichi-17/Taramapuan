@@ -1,0 +1,247 @@
+// Profile.cpp  -  TaraMapuan | Passenger Portal: My profile
+// wxWidgets 3.2+.  Needs UiWidgets.h (shared widgets, palette, icons, shell).
+//
+// Add to MainFrame.h:   wxWindow* BuildProfilePage();      (+ Page::Profile in the enum)
+// BuildPage():          case Page::Profile: return BuildProfilePage();
+//
+// Connected here (same menu order as every passenger page):
+//   sidebar "Find Route"       -> Page::FindRoute
+//   sidebar "Dashboard"        -> Page::PassengerDashboard
+//   sidebar "My Reservations"  -> Page::ReservationConfirmation
+//   sidebar "Digital Pass"     -> Page::DigitalPass
+// Edit Profile, Change Password, Change Photo and logout are visual only (TODO).
+
+#include "MainFrame.h"
+#include "UiWidgets.h"
+
+#include <cmath>
+#include <string>
+#include <vector>
+
+using namespace ui;
+
+namespace {
+
+// ---- icons specific to this view ---------------------------------------------
+const char* const kSvgTicket      = R"(<path d='M3 9V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2.5 2.5 0 0 0 0 5v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2.5 2.5 0 0 0 0-5z'/><path d='M9 8v8'/>)";
+const char* const kSvgPencil      = R"(<path d='M4 20l1-4L16 5l3 3L8 19z'/><path d='M14 7l3 3'/>)";
+const char* const kSvgLock        = R"(<rect x='5' y='11' width='14' height='9' rx='2'/><path d='M8 11V8a4 4 0 0 1 8 0v3'/>)";
+const char* const kSvgIdCard      = R"(<rect x='3' y='5' width='18' height='14' rx='2'/><circle cx='9' cy='11' r='2'/><path d='M6 16c.5-1.5 1.7-2 3-2s2.5.5 3 2M15 10h3M15 14h3'/>)";
+const char* const kSvgCamera      = R"(<path d='M4 8h3l1.5-2h7L17 8h3v11H4z'/><circle cx='12' cy='13' r='3.5'/>)";
+const char* const kSvgUserCircle  = R"(<circle cx='12' cy='12' r='9'/><circle cx='12' cy='10' r='3'/><path d='M6.5 18c1.2-2.3 3.2-3.3 5.5-3.3s4.3 1 5.5 3.3'/>)";
+const char* const kSvgChevronDown = R"(<path d='M6 9l6 6 6-6'/>)";
+
+const wxColour kAvatarSlate(104, 116, 138);
+const wxColour kAvatarLight(236, 240, 246);
+
+// ---- big default avatar with camera badge (custom drawn) --------------------
+class AvatarCircle : public wxPanel {
+public:
+    explicit AvatarCircle(wxWindow* parent) : wxPanel(parent, wxID_ANY) {
+        SetBackgroundStyle(wxBG_STYLE_PAINT);
+        SetMinSize(FromDIP(wxSize(124, 124)));
+        Bind(wxEVT_PAINT, [this](wxPaintEvent&) { OnPaint(); });
+    }
+private:
+    void OnPaint() {
+        wxAutoBufferedPaintDC dc(this);
+        dc.SetBackground(wxBrush(GetParent()->GetBackgroundColour()));
+        dc.Clear();
+        const wxSize s = GetClientSize();
+        const wxPoint c(s.x / 2, s.y / 2);
+        const double R = std::min(s.x, s.y) / 2.0 - 4;
+
+        dc.SetPen(*wxTRANSPARENT_PEN);
+        dc.SetBrush(wxBrush(kAvatarSlate));
+        dc.DrawCircle(c, int(R));
+
+        // silhouette, clipped to the inner disc
+        std::vector<wxPoint> disc;
+        for (int i = 0; i < 72; ++i) {
+            const double a = i * 3.14159265358979 / 36.0;
+            disc.push_back(wxPoint(c.x + int(R * 0.86 * std::cos(a)), c.y + int(R * 0.86 * std::sin(a))));
+        }
+        dc.SetClippingRegion(wxRegion(disc.size(), disc.data()));
+        dc.SetBrush(wxBrush(kAvatarLight));
+        dc.DrawCircle(c, int(R * 0.86));
+        dc.SetBrush(wxBrush(kAvatarSlate));
+        dc.DrawCircle(c.x, c.y - int(R * 0.18), int(R * 0.30));                       // head
+        dc.DrawEllipse(c.x - int(R * 0.66), c.y + int(R * 0.30), int(R * 1.32), int(R * 1.0));  // shoulders
+        dc.DestroyClippingRegion();
+
+        // camera badge
+        const wxPoint b(c.x + int(R * 0.72), c.y + int(R * 0.72));
+        dc.SetPen(wxPen(*wxWHITE, 2));
+        dc.SetBrush(wxBrush(kLpRed));
+        dc.DrawCircle(b, FromDIP(13));
+        const wxBitmap cam = SvgBundle(kSvgCamera, *wxWHITE, 13).GetBitmapFor(this);
+        dc.DrawBitmap(cam, b.x - cam.GetWidth() / 2, b.y - cam.GetHeight() / 2, true);
+    }
+};
+
+// ---- sample data (replace with the logged-in student's record) ---------------
+struct ProfileView {
+    wxString name          = "Anton Karunungan";
+    wxString role          = "Student passenger";
+    wxString studentNumber = "2024342042";
+    wxString course        = "BS Information Technology";
+};
+
+}  // namespace
+
+wxWindow* MainFrame::BuildProfilePage() {
+    const ProfileView v;
+
+    auto toFindRoute    = [this] { ShowPage(Page::FindRoute); };
+    auto toDashboard    = [this] { ShowPage(Page::PassengerDashboard); };
+    auto toReservations = [this] { ShowPage(Page::ReservationConfirmation); };
+    auto toDigitalPass  = [this] { ShowPage(Page::DigitalPass); };
+
+    auto* shell = new wxPanel(m_pageHost, wxID_ANY);
+    shell->SetBackgroundColour(kLpCanvas);
+    auto* shellSizer = new wxBoxSizer(wxHORIZONTAL);
+
+    // =========================================================== SIDEBAR
+    const std::vector<NavEntry> nav = {
+        {"Find Route",      kSvgMap,       toFindRoute,    false},
+        {"Dashboard",       kSvgDashboard, toDashboard,    false},
+        {"My Reservations", kSvgTicket,    toReservations, false},
+        {"Digital Pass",    kSvgQr,        toDigitalPass,  false},
+        {"Profile",         kSvgUser,      [] {},          true},
+    };
+    shellSizer->Add(MakeSidebar(shell, "PASSENGER PORTAL", nav, [] { /* TODO: logout */ },
+                                /*showHelpPanel=*/false),
+                    0, wxEXPAND);
+
+    // ======================================================== RIGHT COLUMN
+    auto* right = new wxPanel(shell, wxID_ANY);
+    right->SetBackgroundColour(kLpCanvas);
+    auto* rs = new wxBoxSizer(wxVERTICAL);
+
+    // ----------------------------------------------------------- top header
+    {
+        auto* header = new wxPanel(right, wxID_ANY);
+        header->SetBackgroundColour(*wxWHITE);
+        auto* hs = new wxBoxSizer(wxHORIZONTAL);
+        hs->Add(Label(header, wxString::FromUTF8("Map\xC3\xBA" "a Campus Transport"), 8, kLpInk, true), 0,
+                wxALIGN_CENTER_VERTICAL | wxLEFT, 44);
+        hs->AddStretchSpacer(1);
+        hs->Add(Icon(header, kSvgBell, kLpMuted, 18), 0, wxALIGN_CENTER_VERTICAL);
+        auto* divider = new wxPanel(header, wxID_ANY, wxDefaultPosition, wxSize(1, 26));
+        divider->SetBackgroundColour(kLpBorder);
+        hs->Add(divider, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, 20);
+        hs->Add(Icon(header, kSvgUserCircle, kLpNavy, 28), 0, wxALIGN_CENTER_VERTICAL);
+        hs->Add(Icon(header, kSvgChevronDown, kLpMuted, 12), 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, 14);
+        hs->AddSpacer(30);
+        auto* hv = new wxBoxSizer(wxVERTICAL);
+        hv->AddSpacer(18);
+        hv->Add(hs, 0, wxEXPAND);
+        hv->AddSpacer(18);
+        header->SetSizer(hv);
+        rs->Add(header, 0, wxEXPAND);
+        rs->Add(Rule(right), 0, wxEXPAND);
+    }
+
+    // ------------------------------------------------------- scrolling body
+    auto* content = new wxScrolledWindow(right, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+                                         wxVSCROLL | wxBORDER_NONE);
+    content->SetScrollRate(0, 10);
+    content->SetBackgroundColour(kLpCanvas);
+    auto* outer = new wxBoxSizer(wxVERTICAL);
+    auto* pad = new wxBoxSizer(wxVERTICAL);
+    outer->AddSpacer(44);
+    outer->Add(pad, 1, wxEXPAND | wxLEFT | wxRIGHT, 44);
+    outer->AddSpacer(44);
+
+    pad->Add(Label(content, "My profile", 22, kLpInk, true));
+    pad->Add(Label(content, "Manage your personal information and account security.", 8, kLpMuted), 0, wxTOP, 8);
+
+    // ------------------------------------------------ personal information card
+    {
+        pad->AddSpacer(22);
+        auto* card = new RoundedPanel(content, *wxWHITE, kLpBorder, 14);
+        auto* inner = new wxBoxSizer(wxVERTICAL);
+
+        // heading + corner icon
+        auto* head = new wxBoxSizer(wxHORIZONTAL);
+        auto* titles = new wxBoxSizer(wxVERTICAL);
+        titles->Add(Label(card, "Personal information", 11, kLpInk));
+        titles->Add(Label(card, "Your student details, all in one place.", 7, kLpMuted), 0, wxTOP, 6);
+        head->Add(titles, 1, wxALIGN_TOP);
+        auto* corner = new RoundedPanel(card, kLpSoft, wxColour(), 8);
+        auto* cs = new wxBoxSizer(wxVERTICAL);
+        cs->Add(Icon(corner, kSvgUser, kLpNavy, 16), 0, wxALL, 10);
+        corner->SetSizer(cs);
+        head->Add(corner, 0, wxALIGN_TOP);
+        inner->Add(head, 0, wxEXPAND);
+
+        // avatar + identity
+        auto* who = new wxBoxSizer(wxHORIZONTAL);
+        auto* avatarCol = new wxBoxSizer(wxVERTICAL);
+        avatarCol->Add(new AvatarCircle(card), 0, wxALIGN_CENTER_HORIZONTAL);
+        avatarCol->Add(Link(card, "Change Photo", 7, kLpRed, true, [] { /* TODO: pick a photo */ }),
+                       0, wxALIGN_CENTER_HORIZONTAL | wxTOP, 8);
+        who->Add(avatarCol, 0, wxALIGN_TOP);
+
+        auto* identity = new wxBoxSizer(wxVERTICAL);
+        auto* nameRow = new wxBoxSizer(wxHORIZONTAL);
+        nameRow->Add(Label(card, v.name, 18, kLpInk, true), 0, wxALIGN_CENTER_VERTICAL);
+        nameRow->Add(Badge(card, "Verified Student", kLpGreenBg, kLpGreen, 7, kSvgCheckCircle), 0,
+                     wxALIGN_CENTER_VERTICAL | wxLEFT, 14);
+        identity->Add(nameRow, 0);
+        identity->Add(Label(card, v.role, 8, kLpMuted), 0, wxTOP, 12);
+        who->Add(identity, 1, wxALIGN_TOP | wxLEFT | wxTOP, 44);
+        inner->Add(who, 0, wxEXPAND | wxTOP, 22);
+
+        inner->Add(Rule(card), 0, wxEXPAND | wxTOP, 22);
+
+        // student number + course
+        auto* info = new wxFlexGridSizer(2, 0, 20);
+        info->AddGrowableCol(0, 1);
+        info->AddGrowableCol(1, 1);
+        const struct { const char* svg; const char* caption; wxString value; } fields[] = {
+            {kSvgIdCard,  "STUDENT NUMBER", v.studentNumber},
+            {kSvgGradCap, "COURSE",         v.course},
+        };
+        for (const auto& f : fields) {
+            auto* box = new RoundedPanel(card, kLpSoft, kLpBorder, 8);
+            auto* bs = new wxBoxSizer(wxVERTICAL);
+            auto* cap = new wxBoxSizer(wxHORIZONTAL);
+            cap->Add(Icon(box, f.svg, kLpMuted, 13), 0, wxALIGN_CENTER_VERTICAL);
+            cap->Add(Label(box, f.caption, 6, kLpMuted, true), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 8);
+            bs->Add(cap, 0, wxLEFT | wxRIGHT | wxTOP, 20);
+            bs->Add(Label(box, f.value, 11, kLpInk, true), 0, wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, 20);
+            bs->GetItem(size_t(1))->SetBorder(10);
+            box->SetSizer(bs);
+            info->Add(box, 1, wxEXPAND);
+        }
+        inner->Add(info, 0, wxEXPAND | wxTOP, 28);
+
+        inner->Add(Rule(card), 0, wxEXPAND | wxTOP, 28);
+
+        // actions
+        auto* actions = new wxBoxSizer(wxHORIZONTAL);
+        actions->Add(new PillButton(card, "Edit Profile", kLpRed, *wxWHITE, wxColour(), 8,
+                                    [] { /* TODO: edit profile */ },
+                                    SvgBundle(kSvgPencil, *wxWHITE, 14), 13, /*iconLeading=*/true),
+                     0, wxALIGN_CENTER_VERTICAL);
+        actions->Add(new PillButton(card, "Change Password", *wxWHITE, kLpNavy, kLpNavy, 8,
+                                    [] { /* TODO: change password */ },
+                                    SvgBundle(kSvgLock, kLpNavy, 14), 13, /*iconLeading=*/true),
+                     0, wxALIGN_CENTER_VERTICAL | wxLEFT, 14);
+        inner->Add(actions, 0, wxTOP, 28);
+
+        auto* cv = new wxBoxSizer(wxVERTICAL);
+        cv->Add(inner, 1, wxEXPAND | wxALL, 36);
+        card->SetSizer(cv);
+        pad->Add(card, 0, wxEXPAND);
+    }
+
+    content->SetSizer(outer);
+    content->FitInside();
+    rs->Add(content, 1, wxEXPAND);
+    right->SetSizer(rs);
+    shellSizer->Add(right, 1, wxEXPAND);
+    shell->SetSizer(shellSizer);
+    return shell;
+}

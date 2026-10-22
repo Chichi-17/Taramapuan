@@ -1,0 +1,411 @@
+// FindRoute.cpp  -  TaraMapuan | Passenger Portal: Find Route
+// wxWidgets 3.2+.  Needs UiWidgets.h (shared widgets, palette, icons, shell).
+//
+// Add to MainFrame.h:   wxWindow* BuildFindRoutePage();
+// BuildPage():          case Page::FindRoute: return BuildFindRoutePage();
+//
+// Passenger menu order (same in every passenger page):
+//   Find Route -> Dashboard -> My Reservations -> Digital Pass -> Profile
+//
+// Connected here:
+//   sidebar "Dashboard"                      -> Page::PassengerDashboard
+//   sidebar "My Reservations"                -> Page::ReservationConfirmation
+//   sidebar "Digital Pass"                   -> Page::DigitalPass
+//   sidebar "Profile"                        -> Page::Profile
+//   "Confirm Route & Find Shuttle" button    -> Page::PassengerDashboard
+// The swap button and logout are visual only (empty TODO handlers).
+
+#include "MainFrame.h"
+#include "UiWidgets.h"
+
+#include <string>
+#include <vector>
+
+using namespace ui;
+
+namespace {
+
+// ---- icons specific to this view ---------------------------------------------
+const char* const kSvgTicket = R"(<path d='M3 9V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2.5 2.5 0 0 0 0 5v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2.5 2.5 0 0 0 0-5z'/><path d='M9 8v8'/>)";
+const char* const kSvgPin    = R"(<path d='M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z'/><circle cx='12' cy='10' r='2.3'/>)";
+const char* const kSvgClock  = R"(<circle cx='12' cy='12' r='9'/><path d='M12 7v5l3 2'/>)";
+const char* const kSvgSwap   = R"(<path d='M7 4v16M7 4L4 7M7 4l3 3M17 20V4M17 20l-3-3M17 20l3-3'/>)";
+const char* const kSvgInfo   = R"(<circle cx='12' cy='12' r='9'/><path d='M12 11v5M12 8v.01'/>)";
+
+const wxColour kRoadFill(233, 236, 241);
+const wxColour kMapBg(243, 245, 248);
+const wxColour kParkFill(208, 230, 214);
+const wxColour kBuildingLine(226, 231, 239);
+const wxColour kMapLabel(140, 150, 168);
+
+// ---- dotted vertical connector between FROM and TO ---------------------------
+class DottedVLine : public wxPanel {
+public:
+    explicit DottedVLine(wxWindow* parent) : wxPanel(parent, wxID_ANY) {
+        SetBackgroundStyle(wxBG_STYLE_PAINT);
+        SetMinSize(wxSize(1, FromDIP(24)));
+        Bind(wxEVT_PAINT, [this](wxPaintEvent&) {
+            wxAutoBufferedPaintDC dc(this);
+            dc.SetBackground(wxBrush(GetParent()->GetBackgroundColour()));
+            dc.Clear();
+            dc.SetPen(wxPen(wxColour(176, 186, 204)));
+            for (int y = 2; y < GetClientSize().y; y += 4) dc.DrawPoint(0, y);
+        });
+    }
+};
+
+// ---- the conceptual campus map (custom drawn, scales with the panel) ----------
+class CampusMap : public wxPanel {
+public:
+    explicit CampusMap(wxWindow* parent) : wxPanel(parent, wxID_ANY) {
+        SetBackgroundStyle(wxBG_STYLE_PAINT);
+        SetMinSize(FromDIP(wxSize(520, 560)));
+        Bind(wxEVT_PAINT, [this](wxPaintEvent&) { OnPaint(); });
+    }
+private:
+    void OnPaint() {
+        wxAutoBufferedPaintDC dc(this);
+        dc.SetBackground(wxBrush(GetParent()->GetBackgroundColour()));
+        dc.Clear();
+        const wxSize s = GetClientSize();
+        auto X = [&](double f) { return int(s.x * f); };
+        auto Y = [&](double f) { return int(s.y * f); };
+
+        // panel
+        dc.SetPen(wxPen(kLpBorder));
+        dc.SetBrush(wxBrush(kMapBg));
+        dc.DrawRoundedRectangle(0, 0, s.x, s.y, 12);
+
+        // roads
+        dc.SetPen(*wxTRANSPARENT_PEN);
+        dc.SetBrush(wxBrush(kRoadFill));
+        dc.DrawRectangle(X(0.500), 1, X(0.040), s.y - 2);                // vertical avenue
+        dc.DrawRectangle(1, Y(0.470), s.x - 2, Y(0.042));                // east-west road
+
+        // parks
+        auto box = [&](double x0, double y0, double x1, double y1, const wxColour& fill, int radius = 6,
+                       bool outline = false) {
+            dc.SetPen(outline ? wxPen(kBuildingLine) : *wxTRANSPARENT_PEN);
+            dc.SetBrush(wxBrush(fill));
+            dc.DrawRoundedRectangle(X(x0), Y(y0), X(x1) - X(x0), Y(y1) - Y(y0), radius);
+        };
+        box(0.606, 0.510, 0.952, 0.683, kParkFill, 8);
+        box(0.035, 0.522, 0.152, 0.677, kParkFill, 8);
+        box(0.035, 0.780, 0.200, 0.872, kParkFill, 8);
+
+        // buildings (white, optional label)
+        struct Building { double x0, y0, x1, y1; const char* label; wxColour fill; };
+        const wxColour white = *wxWHITE;
+        const Building buildings[] = {
+            {0.037, 0.159, 0.152, 0.280, "",                    white},
+            {0.265, 0.178, 0.487, 0.301, "Engineering Hall",    white},
+            {0.606, 0.178, 0.762, 0.311, "Library",             white},
+            {0.790, 0.178, 0.952, 0.311, "",                    white},
+            {0.606, 0.344, 0.952, 0.413, "",                    white},
+            {0.265, 0.326, 0.487, 0.412, "",                    white},
+            {0.030, 0.311, 0.156, 0.416, "Transport\nBay A",    wxColour(232, 240, 250)},
+            {0.265, 0.524, 0.487, 0.674, "Student Center",      white},
+            {0.606, 0.525, 0.762, 0.618, "Admin",               white},
+            {0.246, 0.781, 0.487, 0.874, "Academic Hall",       white},
+            {0.606, 0.783, 0.705, 0.874, "",                    white},
+            {0.835, 0.783, 0.952, 0.874, "",                    white},
+        };
+        dc.SetFont(wxFont(wxFontInfo(6)));
+        dc.SetTextForeground(kMapLabel);
+        for (const auto& b : buildings) {
+            box(b.x0, b.y0, b.x1, b.y1, b.fill, 4, true);
+            const wxString label = wxString::FromUTF8(b.label);
+            if (!label.empty()) {
+                const wxSize t = dc.GetMultiLineTextExtent(label);
+                dc.DrawLabel(label, wxRect(X(b.x0), Y(b.y0), X(b.x1) - X(b.x0), Y(b.y1) - Y(b.y0)),
+                             wxALIGN_CENTER);
+                (void)t;
+            }
+        }
+
+        // route polyline
+        const wxPoint start(X(0.203), Y(0.355));
+        const wxPoint pts[] = {start, wxPoint(X(0.203), Y(0.460)), wxPoint(X(0.536), Y(0.460)),
+                               wxPoint(X(0.536), Y(0.726)), wxPoint(X(0.773), Y(0.726))};
+        wxPen routePen(kLpNavy, 4);
+        routePen.SetJoin(wxJOIN_ROUND);
+        routePen.SetCap(wxCAP_ROUND);
+        dc.SetPen(routePen);
+        dc.DrawLines(5, pts);
+
+        // start node
+        dc.SetPen(*wxTRANSPARENT_PEN);
+        dc.SetBrush(wxBrush(wxColour(208, 214, 224)));
+        dc.DrawCircle(start, 14);
+        dc.SetBrush(wxBrush(kLpNavy));
+        dc.DrawCircle(start, 7);
+
+        // end pin (Main Gate)
+        const wxPoint pin(X(0.773), Y(0.745));
+        dc.SetBrush(wxBrush(kLpRed));
+        dc.DrawCircle(pin.x, pin.y - 8, 13);
+        const wxPoint tail[] = {wxPoint(pin.x - 10, pin.y - 2), wxPoint(pin.x + 10, pin.y - 2),
+                                wxPoint(pin.x, pin.y + 14)};
+        dc.DrawPolygon(3, tail);
+        dc.SetBrush(wxBrush(*wxWHITE));
+        dc.DrawCircle(pin.x, pin.y - 8, 4);
+
+        // floating cards
+        auto floatCard = [&](const wxRect& r, int radius) {
+            dc.SetPen(*wxTRANSPARENT_PEN);
+            dc.SetBrush(wxBrush(wxColour(224, 228, 236)));
+            dc.DrawRoundedRectangle(r.x, r.y + 2, r.width, r.height, radius);      // soft shadow
+            dc.SetBrush(wxBrush(*wxWHITE));
+            dc.DrawRoundedRectangle(r, radius);
+        };
+        const wxFont bold9(wxFontInfo(9).Bold());
+        const wxFont bold8(wxFontInfo(8).Bold());
+        const wxFont small6(wxFontInfo(6));
+
+        // "Campus" label
+        {
+            dc.SetFont(bold8);
+            const wxSize t = dc.GetTextExtent("Campus");
+            const wxRect r(start.x + 18, start.y - 15, t.x + 24, 30);
+            floatCard(r, 6);
+            dc.SetTextForeground(kLpInk);
+            dc.DrawText("Campus", r.x + 12, r.y + (r.height - t.y) / 2);
+        }
+        // "Main Gate" label
+        {
+            dc.SetFont(bold8);
+            const wxSize t = dc.GetTextExtent("Main Gate");
+            const wxRect r(pin.x - (t.x + 24) / 2, pin.y + 22, t.x + 24, 30);
+            floatCard(r, 6);
+            dc.SetTextForeground(kLpRed);
+            dc.DrawText("Main Gate", r.x + 12, r.y + (r.height - t.y) / 2);
+        }
+        // travel-time chip
+        {
+            const wxBitmap clock = SvgBundle(kSvgClock, kLpNavy, 14).GetBitmapFor(this);
+            dc.SetFont(wxFont(wxFontInfo(8).Bold()));
+            const wxString text = "12 min travel time";
+            const wxSize t = dc.GetTextExtent(text);
+            const wxRect r(X(0.397), Y(0.405), t.x + clock.GetWidth() + 36, 32);
+            floatCard(r, 16);
+            dc.DrawBitmap(clock, r.x + 12, r.y + (r.height - clock.GetHeight()) / 2, true);
+            dc.SetTextForeground(kLpInk);
+            dc.DrawText(text, r.x + 12 + clock.GetWidth() + 8, r.y + (r.height - t.y) / 2);
+        }
+        // "Route preview" card (top-left)
+        {
+            const wxBitmap map = SvgBundle(kSvgMap, kLpNavy, 16).GetBitmapFor(this);
+            const wxRect r(X(0.030), Y(0.027), 142, 50);
+            floatCard(r, 8);
+            dc.DrawBitmap(map, r.x + 12, r.y + (r.height - map.GetHeight()) / 2, true);
+            dc.SetFont(bold8);
+            dc.SetTextForeground(kLpInk);
+            dc.DrawText("Route preview", r.x + 12 + map.GetWidth() + 8, r.y + 10);
+            dc.SetFont(small6);
+            dc.SetTextForeground(kLpMuted);
+            dc.DrawText(wxString("Campus ") + ArrowRight() + " Main Gate", r.x + 12 + map.GetWidth() + 8, r.y + 28);
+        }
+        // north indicator
+        {
+            dc.SetFont(wxFont(wxFontInfo(6).Bold()));
+            dc.SetTextForeground(kLpInk);
+            const int nx = s.x - 30;
+            dc.DrawText("N", nx - 3, Y(0.040));
+            dc.SetPen(*wxTRANSPARENT_PEN);
+            dc.SetBrush(wxBrush(kLpNavy));
+            const wxPoint arrow[] = {wxPoint(nx, Y(0.040) + 16), wxPoint(nx - 6, Y(0.040) + 34),
+                                     wxPoint(nx, Y(0.040) + 29), wxPoint(nx + 6, Y(0.040) + 34)};
+            dc.DrawPolygon(4, arrow);
+        }
+        // legend (bottom-left)
+        {
+            dc.SetFont(wxFont(wxFontInfo(7).Bold()));
+            const wxString text = "P2P shuttle route";
+            const wxSize t = dc.GetTextExtent(text);
+            const wxRect r(X(0.030), Y(0.843), t.x + 66, 32);
+            floatCard(r, 6);
+            dc.SetPen(wxPen(kLpNavy, 3));
+            dc.DrawLine(r.x + 12, r.y + r.height / 2, r.x + 34, r.y + r.height / 2);
+            dc.SetTextForeground(kLpInk);
+            dc.DrawText(text, r.x + 44, r.y + (r.height - t.y) / 2);
+        }
+        // caption
+        {
+            dc.SetFont(small6);
+            dc.SetTextForeground(kMapLabel);
+            const wxString text = "Conceptual campus map " + MidDot() + " Not to scale";
+            const wxSize t = dc.GetTextExtent(text);
+            dc.DrawText(text, s.x - t.x - 14, s.y - t.y - 10);
+        }
+    }
+};
+
+// ---- sample data (replace with the real route/schedule later) ------------------
+struct FindRouteView {
+    wxString fullName      = "Alex Santos";
+    wxString studentId     = "2024-001234";
+    wxString initials      = "AS";
+    wxString dateText      = "October 22, 2026";
+    wxString from          = "Campus Transport Bay A";
+    wxString to            = "Main Gate";
+    wxString shuttleTitle  = "Campus Loop " + MidDot() + " R01";
+    wxString shuttleNote   = "Direct point-to-point service";
+    wxString nextDeparture = "7:30 AM";
+    wxString rideTime      = "12 min ride";
+    wxString note          = "Travel directly from campus to Main Gate. No intermediate stops.";
+};
+
+}  // namespace
+
+wxWindow* MainFrame::BuildFindRoutePage() {
+    const FindRouteView v;
+
+    auto toDashboard    = [this] { ShowPage(Page::PassengerDashboard); };
+    auto toReservations = [this] { ShowPage(Page::ReservationConfirmation); };
+    auto toDigitalPass  = [this] { ShowPage(Page::DigitalPass); };
+    auto toProfile      = [this] { ShowPage(Page::Profile); };
+
+    auto* shell = new wxPanel(m_pageHost, wxID_ANY);
+    shell->SetBackgroundColour(kLpCanvas);
+    auto* shellSizer = new wxBoxSizer(wxHORIZONTAL);
+
+    // =========================================================== SIDEBAR
+    const std::vector<NavEntry> nav = {
+        {"Find Route",      kSvgMap,       [] {},          true},
+        {"Dashboard",       kSvgDashboard, toDashboard,    false},
+        {"My Reservations", kSvgTicket,    toReservations, false},
+        {"Digital Pass",    kSvgQr,        toDigitalPass,  false},
+        {"Profile",         kSvgUser,      toProfile,      false},
+    };
+    shellSizer->Add(MakeSidebar(shell, "PASSENGER PORTAL", nav, [] { /* TODO: logout */ }), 0, wxEXPAND);
+
+    // ======================================================== RIGHT COLUMN
+    auto* right = new wxPanel(shell, wxID_ANY);
+    right->SetBackgroundColour(kLpCanvas);
+    auto* rs = new wxBoxSizer(wxVERTICAL);
+    rs->Add(MakeTopHeader(right, "Student portal", kLpGreyBadge, kLpMuted, v.dateText, v.initials,
+                          v.fullName, v.studentId),
+            0, wxEXPAND);
+
+    auto* content = new wxScrolledWindow(right, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+                                         wxVSCROLL | wxBORDER_NONE);
+    content->SetScrollRate(0, 10);
+    content->SetBackgroundColour(kLpCanvas);
+    auto* outer = new wxBoxSizer(wxVERTICAL);
+    auto* pad = new wxBoxSizer(wxHORIZONTAL);
+    outer->Add(pad, 1, wxEXPAND | wxALL, 26);
+
+    // ===================== left: "Plan your trip" card
+    {
+        auto* card = new RoundedPanel(content, *wxWHITE, kLpBorder, 12);
+        card->SetMinSize(wxSize(card->FromDIP(350), -1));
+        auto* inner = new wxBoxSizer(wxVERTICAL);
+
+        inner->Add(Label(card, "FIND ROUTE", 7, kLpRed, true));
+        inner->Add(Label(card, "Plan your trip", 20, kLpInk, true), 0, wxTOP, 6);
+        inner->Add(Label(card, "Select your P2P shuttle route.", 8, kLpMuted), 0, wxTOP, 6);
+
+        // FROM
+        auto* from = new RoundedPanel(card, kLpSoft, kLpBorder, 8);
+        {
+            auto* fs = new wxBoxSizer(wxVERTICAL);
+            auto* cap = new wxBoxSizer(wxHORIZONTAL);
+            cap->Add(StopDot(from, kLpNavy, 7), 0, wxALIGN_CENTER_VERTICAL);
+            cap->Add(Label(from, "FROM", 6, kLpMuted, true), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 10);
+            fs->Add(cap, 0, wxLEFT | wxRIGHT | wxTOP, 16);
+            fs->Add(Label(from, v.from, 9, kLpInk, true), 0, wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, 16);
+            fs->GetItem(size_t(1))->SetBorder(10);
+            from->SetSizer(fs);
+        }
+        inner->Add(from, 0, wxEXPAND | wxTOP, 22);
+
+        // dotted connector + swap button
+        {
+            auto* row = new wxBoxSizer(wxHORIZONTAL);
+            row->Add(new DottedVLine(card), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 20);
+            row->AddStretchSpacer(1);
+            auto* swap = new RoundedPanel(card, *wxWHITE, kLpBorder, 14);
+            auto* ss = new wxBoxSizer(wxVERTICAL);
+            ss->Add(Icon(swap, kSvgSwap, kLpNavy, 14), 0, wxALL, 7);
+            swap->SetSizer(ss);
+            MakeClickable(swap, [] { /* TODO: swap origin and destination */ });
+            row->Add(swap, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+            inner->Add(row, 0, wxEXPAND | wxTOP | wxBOTTOM, 4);
+        }
+
+        // TO
+        auto* to = new RoundedPanel(card, kLpSoft, kLpBorder, 8);
+        {
+            auto* ts = new wxBoxSizer(wxVERTICAL);
+            auto* cap = new wxBoxSizer(wxHORIZONTAL);
+            cap->Add(Icon(to, kSvgPin, kLpRed, 14), 0, wxALIGN_CENTER_VERTICAL);
+            cap->Add(Label(to, "TO", 6, kLpMuted, true), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 8);
+            ts->Add(cap, 0, wxLEFT | wxRIGHT | wxTOP, 16);
+            ts->Add(Label(to, v.to, 9, kLpInk, true), 0, wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, 16);
+            ts->GetItem(size_t(1))->SetBorder(10);
+            to->SetSizer(ts);
+        }
+        inner->Add(to, 0, wxEXPAND);
+
+        // suggested shuttle
+        inner->Add(Label(card, "SUGGESTED SHUTTLE", 6, kLpMuted, true), 0, wxTOP, 24);
+        {
+            auto* shuttle = new RoundedPanel(card, kLpStrip, wxColour(213, 224, 243), 10);
+            auto* ss = new wxBoxSizer(wxVERTICAL);
+
+            auto* head = new wxBoxSizer(wxHORIZONTAL);
+            auto* iconBox = new RoundedPanel(shuttle, *wxWHITE, wxColour(), 8);
+            auto* ib = new wxBoxSizer(wxVERTICAL);
+            ib->Add(Icon(iconBox, kSvgBus, kLpNavy, 18), 0, wxALL, 8);
+            iconBox->SetSizer(ib);
+            head->Add(iconBox, 0, wxALIGN_CENTER_VERTICAL);
+            auto* titles = new wxBoxSizer(wxVERTICAL);
+            titles->Add(Label(shuttle, v.shuttleTitle, 10, kLpInk, true));
+            titles->Add(Label(shuttle, v.shuttleNote, 7, kLpMuted), 0, wxTOP, 3);
+            head->Add(titles, 1, wxALIGN_CENTER_VERTICAL | wxLEFT, 12);
+            ss->Add(head, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 16);
+
+            ss->Add(Rule(shuttle, wxColour(205, 217, 238)), 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 16);
+            ss->Add(Label(shuttle, "Next departure: " + v.nextDeparture, 8, kLpInk, true), 0,
+                    wxLEFT | wxRIGHT | wxTOP, 16);
+            auto* ride = new wxBoxSizer(wxHORIZONTAL);
+            ride->Add(Icon(shuttle, kSvgClock, kLpMuted, 14), 0, wxALIGN_CENTER_VERTICAL);
+            ride->Add(Label(shuttle, v.rideTime, 7, kLpMuted), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 8);
+            ss->Add(ride, 0, wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, 16);
+            shuttle->SetSizer(ss);
+            inner->Add(shuttle, 0, wxEXPAND | wxTOP, 10);
+        }
+
+        inner->AddStretchSpacer(1);
+
+        // note + CTA
+        {
+            auto* note = new wxBoxSizer(wxHORIZONTAL);
+            note->Add(Icon(card, kSvgInfo, kLpMuted, 14), 0, wxALIGN_TOP | wxTOP, 1);
+            auto* text = Label(card, v.note, 7, kLpMuted);
+            text->Wrap(card->FromDIP(280));
+            note->Add(text, 1, wxLEFT, 8);
+            inner->Add(note, 0, wxEXPAND | wxTOP, 24);
+        }
+        inner->Add(new PillButton(card, "Confirm Route & Find Shuttle  " + ArrowRight(), kLpNavy, *wxWHITE,
+                                  wxColour(), 9, toDashboard, wxBitmapBundle(), 13),        // connected
+                   0, wxEXPAND | wxTOP, 16);
+
+        auto* cv = new wxBoxSizer(wxVERTICAL);
+        cv->Add(inner, 1, wxEXPAND | wxALL, 20);
+        card->SetSizer(cv);
+        pad->Add(card, 0, wxEXPAND);
+    }
+    pad->AddSpacer(22);
+
+    // ===================== right: campus map
+    pad->Add(new CampusMap(content), 1, wxEXPAND);
+
+    content->SetSizer(outer);
+    content->FitInside();
+    rs->Add(content, 1, wxEXPAND);
+    right->SetSizer(rs);
+    shellSizer->Add(right, 1, wxEXPAND);
+    shell->SetSizer(shellSizer);
+    return shell;
+}

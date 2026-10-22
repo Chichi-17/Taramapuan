@@ -1,0 +1,39 @@
+A robust shuttle bus reservation system requires strict state management and concurrency controls to prevent double-booking while ensuring a smooth user experience.
+
+1. Core Data Entities
+
+Trip: An instance of a Route on a specific date and time, linked to a specific Shuttle (e.g., Campus Loop, 7:30 AM, SH-001).
+
+Seat: A physical slot on a Trip (e.g., Seat 01 to 20).
+
+Reservation: The record tying a User to a specific Seat on a specific Trip, including payment status and a unique QR hash.
+
+2. The Seat Lifecycle (State Machine)
+To prevent two students from booking the same seat simultaneously, seats must cycle through strict states:
+
+AVAILABLE: The seat can be viewed and selected.
+
+HELD (Pending): A user has clicked the seat to check out. The seat is temporarily locked for a strict TTL (Time-To-Live) window, such as 5 minutes.
+
+BOOKED: Payment/verification is complete. The seat is permanently assigned.
+
+UNAVAILABLE: Reserved for driver use or marked broken.
+
+3. Step-by-Step Booking Logic
+
+Availability Query: When a user selects a destination, the backend queries the database for Trips matching the route today. It calculates capacity dynamically: Remaining Capacity = Total Seats - (Count of BOOKED + Count of HELD).
+
+Seat Map Fetch: When the user clicks "Reserve Seat" on SH-001, the system fetches all 20 seats and their current states (AVAILABLE, HELD, BOOKED). The UI renders grey for BOOKED/HELD and white/blue for AVAILABLE.
+
+Atomic Hold (Concurrency Control): When the user clicks "Seat 19", the frontend calls the backend to hold it. The database executes an atomic update: UPDATE Seats SET status = 'HELD', hold_expires = NOW() + 5 MINUTES WHERE trip_id = 123 AND seat_number = 19 AND status = 'AVAILABLE'.
+
+If 0 rows are updated, someone else grabbed it a millisecond earlier. The UI alerts the user to pick another seat.
+
+If 1 row is updated, the user proceeds to the summary page.
+
+Confirmation & Payment: The user clicks "Confirm & Pay". The backend verifies that NOW() < hold_expires. If valid, it changes the seat status to BOOKED, generates a unique alphanumeric Booking ID (e.g., TM-261008-0019), and hashes the data to generate the QR code payload.
+
+Releasing Expired Holds: A background chron job (or lazy evaluation on the next query) constantly checks for HELD seats where the 5-minute timer has expired. It reverts these back to AVAILABLE so they are not lost to the system if a user closes their app mid-checkout.
+
+4. Waitlist Logic (Optional)
+If a shuttle hits 20/20 capacity, the state changes to "Full shuttle". Users can click "Join waitlist". They are added to a separate queue table sorted by timestamp. If a BOOKED user cancels, or a HELD seat expires without purchase, the system automatically assigns the newly AVAILABLE seat to the first person in the waitlist queue and sends them a push notification to confirm.

@@ -1,0 +1,356 @@
+// UiWidgets.h  -  shared flat-design widgets, palette, icons and portal shell
+// helpers for TaraMapuan. wxWidgets 3.2+, header-only (everything is inline).
+//
+// LandingPage.cpp and ConfirmationPage.cpp still carry private copies of the
+// widget classes; once you are ready, delete those copies, #include this header
+// and add `using namespace ui;` - the APIs here are a superset of theirs.
+#pragma once
+
+#include <wx/wx.h>
+#include <wx/bmpbndl.h>
+#include <wx/dcbuffer.h>
+#include <wx/statbmp.h>
+
+#include <algorithm>
+#include <functional>
+#include <string>
+#include <vector>
+
+namespace ui {
+
+// ---- palette ----------------------------------------------------------------
+static const wxColour kLpNavy(15, 42, 82);
+static const wxColour kLpNavyLight(36, 68, 122);
+static const wxColour kLpNavyPanel(27, 58, 104);
+static const wxColour kLpAccent(30, 76, 150);
+static const wxColour kLpRed(190, 24, 58);
+static const wxColour kLpInk(24, 38, 64);
+static const wxColour kLpMuted(106, 118, 140);
+static const wxColour kLpNavMuted(200, 214, 236);
+static const wxColour kLpStrip(232, 239, 250);
+static const wxColour kLpGreen(22, 128, 92);
+static const wxColour kLpGreenBg(230, 246, 238);
+static const wxColour kLpGreenLine(198, 231, 213);
+static const wxColour kLpAmber(160, 98, 8);
+static const wxColour kLpAmberBg(254, 243, 214);
+static const wxColour kLpBorder(222, 229, 240);
+static const wxColour kLpSoft(247, 249, 252);
+static const wxColour kLpCanvas(245, 247, 251);
+static const wxColour kLpGreyBadge(236, 239, 244);
+static const wxColour kLpSeatTaken(236, 240, 247);
+static const wxColour kLpSeatTakenText(150, 160, 178);
+
+// ---- glyphs (UTF-8 escapes: source-encoding safe) ---------------------------
+inline wxString MidDot()     { return wxString::FromUTF8("\xC2\xB7"); }      // ·
+inline wxString Peso()       { return wxString::FromUTF8("\xE2\x82\xB1"); }  // ₱
+inline wxString ArrowLeft()  { return wxString::FromUTF8("\xE2\x86\x90"); }  // ←
+inline wxString ArrowRight() { return wxString::FromUTF8("\xE2\x86\x92"); }  // →
+inline wxString ArrowUp()    { return wxString::FromUTF8("\xE2\x86\x97"); }  // ↗
+inline wxString ArrowDown()  { return wxString::FromUTF8("\xE2\x86\x93"); }  // ↓
+
+// ---- SVG icon bodies (24x24 viewBox, stroke based) ---------------------------
+static const char* const kSvgBus         = R"(<rect x='4' y='3' width='16' height='15' rx='3'/><path d='M4 11h16M8 18v2M16 18v2'/><circle cx='8' cy='14.5' r='.6'/><circle cx='16' cy='14.5' r='.6'/>)";
+static const char* const kSvgCheck       = R"(<path d='M5 12.5l4.5 4.5L19 7.5'/>)";
+static const char* const kSvgCheckCircle = R"(<circle cx='12' cy='12' r='9'/><path d='M8 12.5l3 3 5-6'/>)";
+static const char* const kSvgBell        = R"(<path d='M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z'/><path d='M10 21h4'/>)";
+static const char* const kSvgQr          = R"(<rect x='4' y='4' width='6' height='6' rx='1'/><rect x='14' y='4' width='6' height='6' rx='1'/><rect x='4' y='14' width='6' height='6' rx='1'/><path d='M14 14h3v3M20 14v.01M14 20h3M20 17v3'/>)";
+static const char* const kSvgGradCap     = R"(<path d='M2 9l10-5 10 5-10 5z'/><path d='M6 11.5V16c0 1.5 3 3 6 3s6-1.5 6-3v-4.5M22 9v6'/>)";
+static const char* const kSvgDashboard   = R"(<rect x='4' y='4' width='6.5' height='6.5' rx='1.5'/><rect x='13.5' y='4' width='6.5' height='6.5' rx='1.5'/><rect x='4' y='13.5' width='6.5' height='6.5' rx='1.5'/><rect x='13.5' y='13.5' width='6.5' height='6.5' rx='1.5'/>)";
+static const char* const kSvgRoute       = R"(<circle cx='6' cy='6' r='2.5'/><circle cx='18' cy='18' r='2.5'/><path d='M8.5 6H15a3 3 0 0 1 0 6H9a3 3 0 0 0 0 6h6.5'/>)";
+static const char* const kSvgCalendar    = R"(<rect x='4' y='5' width='16' height='15' rx='2'/><path d='M4 10h16M9 3v4M15 3v4'/>)";
+static const char* const kSvgUser        = R"(<circle cx='12' cy='8' r='4'/><path d='M4 20c1-4 4-6 8-6s7 2 8 6'/>)";
+static const char* const kSvgUsers       = R"(<circle cx='9' cy='8' r='3.5'/><path d='M2.5 20c.5-3.5 3-5.5 6.5-5.5s6 2 6.5 5.5'/><path d='M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c2 .6 3.3 2.4 3.5 5.2'/>)";
+static const char* const kSvgHeadset     = R"(<path d='M4 14v-2a8 8 0 0 1 16 0v2'/><rect x='3' y='14' width='4' height='6' rx='1.5'/><rect x='17' y='14' width='4' height='6' rx='1.5'/>)";
+static const char* const kSvgLogout      = R"(<path d='M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M15 8l4 4-4 4M19 12H9'/>)";
+static const char* const kSvgSearch      = R"(<circle cx='11' cy='11' r='6.5'/><path d='M16 16l4 4'/>)";
+static const char* const kSvgScan        = R"(<path d='M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2'/><path d='M8 12h8'/>)";
+static const char* const kSvgArrowRight  = R"(<path d='M5 12h14M13 6l6 6-6 6'/>)";
+static const char* const kSvgMap         = R"(<path d='M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z'/><path d='M9 4v14M15 6v14'/>)";
+static const char* const kSvgHistory     = R"(<path d='M4 12a8 8 0 1 0 3-6.2L4 8'/><path d='M4 4v4h4M12 8v4l3 2'/>)";
+
+inline wxBitmapBundle SvgBundle(const char* body, const wxColour& stroke, int sizeDip) {
+    const std::string svg =
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='" +
+        stroke.GetAsString(wxC2S_HTML_SYNTAX).ToStdString() +
+        "' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>" + body + "</svg>";
+    return wxBitmapBundle::FromSVG(svg.c_str(), wxSize(sizeDip, sizeDip));
+}
+
+inline wxStaticBitmap* Icon(wxWindow* parent, const char* body, const wxColour& stroke, int sizeDip) {
+    return new wxStaticBitmap(parent, wxID_ANY, SvgBundle(body, stroke, sizeDip));
+}
+
+// ---- text / small helpers ------------------------------------------------------
+inline wxStaticText* Label(wxWindow* parent, const wxString& text, int pt, const wxColour& colour,
+                           bool bold = false) {
+    auto* s = new wxStaticText(parent, wxID_ANY, text);
+    s->SetFont(bold ? wxFont(wxFontInfo(pt).Bold()) : wxFont(wxFontInfo(pt)));
+    s->SetForegroundColour(colour);
+    return s;
+}
+
+inline wxStaticText* Link(wxWindow* parent, const wxString& text, int pt, const wxColour& colour,
+                          bool bold, std::function<void()> onClick) {
+    auto* s = Label(parent, text, pt, colour, bold);
+    s->SetCursor(wxCursor(wxCURSOR_HAND));
+    s->Bind(wxEVT_LEFT_UP, [onClick](wxMouseEvent&) { onClick(); });
+    return s;
+}
+
+inline void MakeClickable(wxWindow* w, const std::function<void()>& onClick) {
+    w->SetCursor(wxCursor(wxCURSOR_HAND));
+    w->Bind(wxEVT_LEFT_UP, [onClick](wxMouseEvent&) { onClick(); });
+    for (wxWindow* child : w->GetChildren()) MakeClickable(child, onClick);
+}
+
+inline wxPanel* Rule(wxWindow* parent, const wxColour& colour = kLpBorder) {
+    auto* r = new wxPanel(parent, wxID_ANY, wxDefaultPosition, wxSize(-1, 1));
+    r->SetMinSize(wxSize(-1, 1));
+    r->SetBackgroundColour(colour);
+    return r;
+}
+
+// ---- RoundedPanel: children created afterwards inherit its fill --------------
+// Optional left accent stripe (CSS "border-left" look) via SetLeftAccent().
+class RoundedPanel : public wxPanel {
+public:
+    RoundedPanel(wxWindow* parent, const wxColour& fill, const wxColour& border, int radius)
+        : wxPanel(parent, wxID_ANY), m_fill(fill), m_border(border), m_radius(radius) {
+        SetBackgroundStyle(wxBG_STYLE_PAINT);
+        SetBackgroundColour(fill);
+        Bind(wxEVT_PAINT, [this](wxPaintEvent&) { OnPaint(); });
+    }
+    void SetLeftAccent(const wxColour& colour, int widthPx) {
+        m_accent = colour;
+        m_accentW = widthPx;
+        Refresh();
+    }
+private:
+    void OnPaint() {
+        wxAutoBufferedPaintDC dc(this);
+        dc.SetBackground(wxBrush(GetParent()->GetBackgroundColour()));
+        dc.Clear();
+        const wxSize s = GetClientSize();
+        if (m_accent.IsOk()) {
+            dc.SetBrush(wxBrush(m_accent));
+            dc.SetPen(*wxTRANSPARENT_PEN);
+            dc.DrawRoundedRectangle(0, 0, s.x, s.y, m_radius);
+            dc.SetClippingRegion(m_accentW, 0, s.x - m_accentW, s.y);
+        }
+        dc.SetBrush(wxBrush(m_fill));
+        dc.SetPen(m_border.IsOk() ? wxPen(m_border) : *wxTRANSPARENT_PEN);
+        dc.DrawRoundedRectangle(0, 0, s.x, s.y, m_radius);
+        if (m_accent.IsOk()) dc.DestroyClippingRegion();
+    }
+    wxColour m_fill, m_border, m_accent;
+    int m_radius;
+    int m_accentW = 0;
+};
+
+// ---- PillButton (label + optional trailing icon) -------------------------------
+class PillButton : public wxPanel {
+public:
+    PillButton(wxWindow* parent, const wxString& label, const wxColour& fill,
+               const wxColour& text, const wxColour& border, int pt,
+               std::function<void()> onClick,
+               const wxBitmapBundle& icon = wxBitmapBundle(), int vpad = 10,
+               bool iconLeading = false)
+        : wxPanel(parent, wxID_ANY), m_label(label), m_fill(fill), m_text(text),
+          m_border(border), m_icon(icon), m_iconLeading(iconLeading) {
+        SetBackgroundStyle(wxBG_STYLE_PAINT);
+        SetFont(wxFont(wxFontInfo(pt).Bold()));
+        SetCursor(wxCursor(wxCURSOR_HAND));
+        wxClientDC measure(this);
+        measure.SetFont(GetFont());
+        const wxSize t = measure.GetTextExtent(label);
+        int w = t.x + FromDIP(32);
+        int h = t.y + FromDIP(2 * vpad);
+        if (m_icon.IsOk()) {
+            const wxSize is = m_icon.GetPreferredBitmapSizeFor(this);
+            w += is.x + FromDIP(8);
+            h = std::max(h, is.y + FromDIP(2 * vpad));
+        }
+        SetMinSize(wxSize(w, h));
+        Bind(wxEVT_PAINT, [this](wxPaintEvent&) { OnPaint(); });
+        Bind(wxEVT_ENTER_WINDOW, [this](wxMouseEvent&) { m_hover = true; Refresh(); });
+        Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent&) { m_hover = false; Refresh(); });
+        Bind(wxEVT_LEFT_UP, [onClick](wxMouseEvent&) { onClick(); });
+    }
+private:
+    void OnPaint() {
+        wxAutoBufferedPaintDC dc(this);
+        dc.SetBackground(wxBrush(GetParent()->GetBackgroundColour()));
+        dc.Clear();
+        wxColour f = m_fill;
+        if (m_hover) f = (f == *wxWHITE) ? wxColour(240, 244, 250) : f.ChangeLightness(112);
+        dc.SetBrush(wxBrush(f));
+        dc.SetPen(m_border.IsOk() ? wxPen(m_border) : *wxTRANSPARENT_PEN);
+        const wxSize s = GetClientSize();
+        dc.DrawRoundedRectangle(0, 0, s.x, s.y, 6);
+        dc.SetFont(GetFont());
+        dc.SetTextForeground(m_text);
+        const wxSize t = dc.GetTextExtent(m_label);
+        wxSize is(0, 0);
+        const int gap = FromDIP(8);
+        if (m_icon.IsOk()) is = m_icon.GetPreferredBitmapSizeFor(this);
+        const int total = t.x + (m_icon.IsOk() ? gap + is.x : 0);
+        const int x0 = (s.x - total) / 2;
+        const int textX = x0 + ((m_icon.IsOk() && m_iconLeading) ? is.x + gap : 0);
+        dc.DrawText(m_label, textX, (s.y - t.y) / 2);
+        if (m_icon.IsOk()) {
+            const int iconX = m_iconLeading ? x0 : x0 + t.x + gap;
+            dc.DrawBitmap(m_icon.GetBitmapFor(this), iconX, (s.y - is.y) / 2, true);
+        }
+    }
+    wxString m_label;
+    wxColour m_fill, m_text, m_border;
+    wxBitmapBundle m_icon;
+    bool m_iconLeading = false;
+    bool m_hover = false;
+};
+
+// ---- badges / dots -----------------------------------------------------------
+inline RoundedPanel* Badge(wxWindow* parent, const wxString& text, const wxColour& fill,
+                           const wxColour& fg, int pt = 7, const char* iconSvg = nullptr) {
+    auto* b = new RoundedPanel(parent, fill, wxColour(), 6);
+    auto* col = new wxBoxSizer(wxVERTICAL);
+    auto* row = new wxBoxSizer(wxHORIZONTAL);
+    if (iconSvg) row->Add(Icon(b, iconSvg, fg, 11), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
+    row->Add(Label(b, text, pt, fg, true), 0, wxALIGN_CENTER_VERTICAL);
+    col->AddSpacer(4);
+    col->Add(row, 0, wxLEFT | wxRIGHT, 10);
+    col->AddSpacer(4);
+    b->SetSizer(col);
+    return b;
+}
+
+inline RoundedPanel* StopDot(wxWindow* parent, const wxColour& colour, int dDip) {
+    auto* p = new RoundedPanel(parent, colour, wxColour(), dDip / 2);
+    p->SetMinSize(p->FromDIP(wxSize(dDip, dDip)));
+    return p;
+}
+
+// ---- portal shell: sidebar ---------------------------------------------------
+struct NavEntry {
+    wxString label;
+    const char* svg;
+    std::function<void()> go;
+    bool active;
+};
+
+inline wxPanel* MakeSidebar(wxWindow* parent, const wxString& caption,
+                            const std::vector<NavEntry>& entries,
+                            std::function<void()> onLogout,
+                            bool showHelpPanel = true) {
+    auto* side = new wxPanel(parent, wxID_ANY);
+    side->SetBackgroundColour(kLpNavy);
+    side->SetMinSize(wxSize(side->FromDIP(204), -1));
+    auto* ss = new wxBoxSizer(wxVERTICAL);
+
+    {   // brand
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* logo = new RoundedPanel(side, kLpRed, wxColour(), 9);
+        auto* ls = new wxBoxSizer(wxVERTICAL);
+        ls->Add(Icon(logo, kSvgBus, *wxWHITE, 22), 0, wxALL, 9);
+        logo->SetSizer(ls);
+        row->Add(logo, 0, wxALIGN_CENTER_VERTICAL);
+        row->Add(Label(side, "TaraMapuan", 17, *wxWHITE, true), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 10);
+        ss->Add(row, 0, wxLEFT | wxRIGHT | wxTOP, 18);
+    }
+    {   // portal caption + divider
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* bar = new wxPanel(side, wxID_ANY, wxDefaultPosition, wxSize(3, 14));
+        bar->SetBackgroundColour(kLpRed);
+        row->Add(bar, 0, wxALIGN_CENTER_VERTICAL);
+        row->Add(Label(side, caption, 7, kLpNavMuted, true), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 8);
+        ss->AddSpacer(22);
+        ss->Add(row, 0, wxLEFT | wxRIGHT, 18);
+        ss->AddSpacer(14);
+        ss->Add(Rule(side, kLpNavyLight), 0, wxEXPAND | wxLEFT | wxRIGHT, 14);
+        ss->AddSpacer(14);
+    }
+    for (const auto& e : entries) {
+        const wxColour fill = e.active ? kLpNavyLight : kLpNavy;
+        auto* item = new RoundedPanel(side, fill, wxColour(), 8);
+        item->SetMinSize(wxSize(-1, item->FromDIP(42)));
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* bar = new wxPanel(item, wxID_ANY, wxDefaultPosition, wxSize(3, 22));
+        bar->SetBackgroundColour(e.active ? kLpRed : fill);    // red left-border indicator
+        row->Add(bar, 0, wxALIGN_CENTER_VERTICAL);
+        const wxColour tint = e.active ? *wxWHITE : kLpNavMuted;
+        row->Add(Icon(item, e.svg, tint, 18), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 12);
+        row->Add(Label(item, e.label, 9, tint, e.active), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 12);
+        item->SetSizer(row);
+        MakeClickable(item, e.go);
+        ss->Add(item, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 14);
+    }
+    ss->AddStretchSpacer(1);
+
+    if (showHelpPanel) {   // "Need a hand?"
+        auto* help = new RoundedPanel(side, kLpNavyPanel, wxColour(), 12);
+        auto* hs = new wxBoxSizer(wxVERTICAL);
+        hs->Add(Icon(help, kSvgHeadset, *wxWHITE, 18), 0, wxLEFT | wxRIGHT | wxTOP, 14);
+        hs->Add(Label(help, "Need a hand?", 9, *wxWHITE, true), 0, wxLEFT | wxRIGHT | wxTOP, 14);
+        hs->Add(Label(help, "Campus transport desk", 7, kLpNavMuted), 0, wxLEFT | wxRIGHT | wxTOP, 14);
+        hs->Add(Label(help, "Mon-Sat " + MidDot() + " 6:00 AM-8:00 PM", 7, kLpNavMuted), 0,
+                wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, 14);
+        help->SetSizer(hs);
+        ss->Add(help, 0, wxEXPAND | wxLEFT | wxRIGHT, 14);
+    }
+    if (!showHelpPanel)
+        ss->Add(Rule(side, kLpNavyLight), 0, wxEXPAND | wxLEFT | wxRIGHT, 14);   // divider above logout
+    {   // logout
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* ico = Icon(side, kSvgLogout, kLpNavMuted, 18);
+        auto* txt = Label(side, "Logout", 9, kLpNavMuted);
+        row->Add(ico, 0, wxALIGN_CENTER_VERTICAL);
+        row->Add(txt, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 12);
+        MakeClickable(ico, onLogout);
+        MakeClickable(txt, onLogout);
+        ss->Add(row, 0, wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, 22);
+    }
+    side->SetSizer(ss);
+    return side;
+}
+
+// ---- portal shell: top header ------------------------------------------------
+inline wxPanel* MakeTopHeader(wxWindow* parent, const wxString& portalLabel,
+                              const wxColour& badgeFill, const wxColour& badgeText,
+                              const wxString& dateText, const wxString& initials,
+                              const wxString& name, const wxString& subtitle) {
+    auto* wrap = new wxPanel(parent, wxID_ANY);
+    wrap->SetBackgroundColour(*wxWHITE);
+    auto* wsz = new wxBoxSizer(wxVERTICAL);
+
+    auto* hs = new wxBoxSizer(wxHORIZONTAL);
+    hs->Add(Icon(wrap, kSvgGradCap, kLpNavy, 20), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 28);
+    hs->Add(Label(wrap, wxString::FromUTF8("Map\xC3\xBA" "a Campus Transport"), 9, kLpInk, true), 0,
+            wxALIGN_CENTER_VERTICAL | wxLEFT, 10);
+    hs->Add(Badge(wrap, portalLabel, badgeFill, badgeText), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 10);
+    hs->AddStretchSpacer(1);
+    hs->Add(Label(wrap, dateText, 8, kLpMuted), 0, wxALIGN_CENTER_VERTICAL);
+    hs->Add(Icon(wrap, kSvgBell, kLpMuted, 18), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 22);
+
+    auto* avatar = new RoundedPanel(wrap, kLpStrip, wxColour(), 18);
+    avatar->SetMinSize(avatar->FromDIP(wxSize(36, 36)));
+    auto* av = new wxBoxSizer(wxVERTICAL);
+    av->AddStretchSpacer(1);
+    av->Add(Label(avatar, initials, 8, kLpNavy, true), 0, wxALIGN_CENTER_HORIZONTAL);
+    av->AddStretchSpacer(1);
+    avatar->SetSizer(av);
+    hs->Add(avatar, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 16);
+
+    auto* who = new wxBoxSizer(wxVERTICAL);
+    who->Add(Label(wrap, name, 8, kLpInk, true), 0, wxALIGN_RIGHT);
+    who->Add(Label(wrap, subtitle, 7, kLpMuted), 0, wxALIGN_RIGHT | wxTOP, 1);
+    hs->Add(who, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, 10);
+
+    wsz->AddSpacer(14);
+    wsz->Add(hs, 0, wxEXPAND);
+    wsz->AddSpacer(14);
+    wsz->Add(Rule(wrap), 0, wxEXPAND);
+    wrap->SetSizer(wsz);
+    return wrap;
+}
+
+}  // namespace ui

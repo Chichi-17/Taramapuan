@@ -1,5 +1,8 @@
-# Add to your CMakeLists.txt (replace YourTargetName with your executable target).
-# Copies the assets folder next to the built exe after every build.
-add_custom_command(TARGET YourTargetName POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:YourTargetName>/assets)
+# Replace TaraMapuan with your executable target name.
+if(EXISTS ${CMAKE_SOURCE_DIR}/assets)
+    add_custom_command(TARGET TaraMapuan POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                ${CMAKE_SOURCE_DIR}/assets
+                $<TARGET_FILE_DIR:TaraMapuan>/assets
+        COMMENT "Copying assets next to the executable")
+endif()
