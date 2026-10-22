@@ -1,0 +1,386 @@
+// PassengerDashboard.cpp  -  TaraMapuan | Passenger Portal: Dashboard
+// wxWidgets 3.2+.  Needs UiWidgets.h (shared widgets, palette, icons, shell).
+//
+// Add to MainFrame.h:   wxWindow* BuildPassengerDashboard();
+//
+// Connected here (as requested): the "My reservations" button and the sidebar
+// "My Reservations" link both call ShowPage(Page::ReservationConfirmation).
+// Everything else is visual only (empty TODO handlers).
+
+#include "MainFrame.h"
+#include "UiWidgets.h"
+
+#include <string>
+#include <vector>
+
+using namespace ui;
+
+namespace {
+
+// ---- icons specific to this view ---------------------------------------------
+const char* const kSvgTicket      = R"(<path d='M3 9V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2.5 2.5 0 0 0 0 5v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2.5 2.5 0 0 0 0-5z'/><path d='M9 8v8'/>)";
+const char* const kSvgShield      = R"(<path d='M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z'/><path d='M9 12l2 2 4-4'/>)";
+const char* const kSvgClock       = R"(<circle cx='12' cy='12' r='9'/><path d='M12 7v5l3 2'/>)";
+const char* const kSvgPin         = R"(<path d='M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z'/><circle cx='12' cy='10' r='2.3'/>)";
+const char* const kSvgBuilding    = R"(<rect x='5' y='3' width='14' height='18' rx='1'/><path d='M9 7h2M13 7h2M9 11h2M13 11h2M10 21v-4h4v4'/>)";
+const char* const kSvgHome        = R"(<path d='M4 11l8-7 8 7'/><path d='M6 10v10h12V10M10 20v-5h4v5'/>)";
+const char* const kSvgChevronDown = R"(<path d='M6 9l6 6 6-6'/>)";
+const char* const kSvgChevronRight= R"(<path d='M9 6l6 6-6 6'/>)";
+
+// ---- capacity bar (custom drawn) -----------------------------------------------
+class CapacityBar : public wxPanel {
+public:
+    CapacityBar(wxWindow* parent, int occupied, int capacity, const wxColour& fill)
+        : wxPanel(parent, wxID_ANY), m_occ(occupied), m_cap(std::max(1, capacity)), m_fill(fill) {
+        SetBackgroundStyle(wxBG_STYLE_PAINT);
+        SetMinSize(wxSize(-1, FromDIP(5)));
+        Bind(wxEVT_PAINT, [this](wxPaintEvent&) {
+            wxAutoBufferedPaintDC dc(this);
+            dc.SetBackground(wxBrush(GetParent()->GetBackgroundColour()));
+            dc.Clear();
+            const wxSize s = GetClientSize();
+            dc.SetPen(*wxTRANSPARENT_PEN);
+            dc.SetBrush(wxBrush(wxColour(231, 235, 243)));
+            dc.DrawRoundedRectangle(0, 0, s.x, s.y, s.y / 2.0);
+            const int w = s.x * std::min(m_occ, m_cap) / m_cap;
+            if (w > 0) {
+                dc.SetBrush(wxBrush(m_fill));
+                dc.DrawRoundedRectangle(0, 0, w, s.y, s.y / 2.0);
+            }
+        });
+    }
+private:
+    int m_occ, m_cap;
+    wxColour m_fill;
+};
+
+struct DestinationInfo { wxString name; const char* svg; bool active; };
+
+struct ShuttleInfo {
+    wxString id, time, meta, route, driver;
+    int occupied, capacity;
+    wxString badge;
+    wxColour badgeFill, badgeText;
+};
+
+struct ConnectionInfo { wxString place, route, shuttle, time, availability; };
+
+// ---- sample data (replace with m_schedules / reservations later) -------------
+struct PassengerView {
+    wxString firstName = "Alex";
+    wxString fullName  = "Alex Santos";
+    wxString studentId = "2024-001234";
+    wxString initials  = "AS";
+    wxString dateText  = "Thu, 08 Oct 2026";
+    wxString dateShort = "Today, 08 Oct";
+
+    std::vector<DestinationInfo> destinations = {
+        {"Main Gate",   kSvgPin,      true},
+        {"Town Center", kSvgBuilding, false},
+        {"Dormitory",   kSvgHome,     false},
+        {"Terminal",    kSvgBus,      false},
+    };
+
+    wxString routeName  = "Campus Loop";
+    wxString routeLine  = "R01 " + MidDot() + " 4 stops " + MidDot() + " approx. 12 min";
+    wxString routeNote  = "Pickup: Campus Transport Bay A " + MidDot() + " Drop-off: Main Gate";
+    std::vector<wxString> stops = {"Campus", "Library", "Student Center", "Main Gate"};
+
+    std::vector<ShuttleInfo> shuttles = {
+        {"SH-001", "7:30 AM", "12 min " + MidDot() + " " + Peso() + "20.00", "Campus Loop " + MidDot() + " R01",
+         "Juan Reyes",   18, 20, "Boarding soon", kLpAmberBg, kLpAmber},
+        {"SH-003", "8:00 AM", "12 min " + MidDot() + " " + Peso() + "20.00", "Campus Loop " + MidDot() + " R01",
+         "Ana Garcia",    9, 20, "Available",     kLpGreenBg, kLpGreen},
+        {"SH-006", "8:30 AM", "12 min " + MidDot() + " " + Peso() + "20.00", "Campus Loop " + MidDot() + " R01",
+         "Miguel Ramos", 20, 20, "Full shuttle",  wxColour(252, 228, 232), kLpRed},
+    };
+
+    std::vector<ConnectionInfo> connections = {
+        {"Town Center", "Town Connector " + MidDot() + " R02", "SH-004 " + MidDot() + " Maria Cruz", "7:45 AM", "8 available"},
+        {"Dormitory",   "Dormitory Express " + MidDot() + " R03", "SH-008 " + MidDot() + " Paolo Lim", "8:00 AM", "12 available"},
+    };
+};
+
+}  // namespace
+
+wxWindow* MainFrame::BuildPassengerDashboard() {
+    const PassengerView v;
+
+    auto toReservations = [this] { ShowPage(Page::ReservationConfirmation); };
+
+    auto* shell = new wxPanel(m_pageHost, wxID_ANY);
+    shell->SetBackgroundColour(kLpCanvas);
+    auto* shellSizer = new wxBoxSizer(wxHORIZONTAL);
+
+    // =========================================================== SIDEBAR
+    const std::vector<NavEntry> nav = {
+        {"Dashboard",       kSvgDashboard, [] {},          true},
+        {"Find Route",      kSvgRoute,     [] {},          false},
+        {"Schedule",        kSvgCalendar,  [] {},          false},
+        {"My Reservations", kSvgTicket,    toReservations, false},     // connected
+        {"Digital Pass",    kSvgQr,        [] {},          false},
+        {"Profile",         kSvgUser,      [] {},          false},
+    };
+    shellSizer->Add(MakeSidebar(shell, "PASSENGER PORTAL", nav, [] { /* TODO: logout */ }), 0, wxEXPAND);
+
+    // ======================================================== RIGHT COLUMN
+    auto* right = new wxPanel(shell, wxID_ANY);
+    right->SetBackgroundColour(kLpCanvas);
+    auto* rs = new wxBoxSizer(wxVERTICAL);
+    rs->Add(MakeTopHeader(right, "Student portal", kLpGreyBadge, kLpMuted, v.dateText, v.initials,
+                          v.fullName, v.studentId),
+            0, wxEXPAND);
+
+    auto* content = new wxScrolledWindow(right, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+                                         wxVSCROLL | wxBORDER_NONE);
+    content->SetScrollRate(0, 10);
+    content->SetBackgroundColour(kLpCanvas);
+    auto* outer = new wxBoxSizer(wxVERTICAL);
+    auto* pad = new wxBoxSizer(wxVERTICAL);
+    outer->Add(pad, 1, wxEXPAND | wxALL, 26);
+
+    // ------------------------------------------------------------ title row
+    {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* titles = new wxBoxSizer(wxVERTICAL);
+        titles->Add(Label(content, "GOOD MORNING, " + v.firstName.Upper(), 7, kLpRed, true));
+        titles->Add(Label(content, "Your next ride starts here.", 22, kLpInk, true), 0, wxTOP, 6);
+        titles->Add(Label(content,
+                          wxString::FromUTF8("Choose where you\xE2\x80\x99re going. Find a route, then a shuttle that fits your day."),
+                          9, kLpMuted),
+                    0, wxTOP, 6);
+        row->Add(titles, 1, wxALIGN_CENTER_VERTICAL);
+        row->Add(new PillButton(content, "My reservations", *wxWHITE, kLpNavy, kLpBorder, 9, toReservations,
+                                SvgBundle(kSvgTicket, kLpNavy, 16), 11),
+                 0, wxALIGN_TOP);                                                // connected
+        pad->Add(row, 0, wxEXPAND);
+    }
+
+    // ------------------------------------------------ 01 where to go
+    {
+        pad->AddSpacer(20);
+        auto* card = new RoundedPanel(content, *wxWHITE, kLpBorder, 10);
+        auto* inner = new wxBoxSizer(wxVERTICAL);
+
+        auto* head = new wxBoxSizer(wxHORIZONTAL);
+        head->Add(Label(card, "01  Where would you like to go?", 9, kLpInk, true), 0, wxALIGN_CENTER_VERTICAL);
+        head->AddStretchSpacer(1);
+        head->Add(Label(card, "Departing from: Campus", 7, kLpMuted), 0, wxALIGN_CENTER_VERTICAL);
+        inner->Add(head, 0, wxEXPAND);
+
+        auto* grid = new wxFlexGridSizer(static_cast<int>(v.destinations.size()), 0, 12);
+        for (size_t i = 0; i < v.destinations.size(); ++i) grid->AddGrowableCol(i, 1);
+        for (const auto& d : v.destinations) {
+            auto* dest = new RoundedPanel(card, d.active ? kLpStrip : kLpSoft,
+                                          d.active ? kLpNavy : kLpBorder, 8);
+            auto* row = new wxBoxSizer(wxHORIZONTAL);
+            row->Add(Icon(dest, d.svg, d.active ? kLpNavy : kLpMuted, 16), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 14);
+            row->Add(Label(dest, d.name, 9, d.active ? kLpNavy : kLpInk, d.active), 0,
+                     wxALIGN_CENTER_VERTICAL | wxLEFT, 10);
+            if (d.active)
+                row->Add(Icon(dest, kSvgCheckCircle, kLpNavy, 15), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 10);
+            auto* dv = new wxBoxSizer(wxVERTICAL);
+            dv->AddSpacer(11);
+            dv->Add(row, 0, wxEXPAND);
+            dv->AddSpacer(11);
+            dest->SetSizer(dv);
+            MakeClickable(dest, [] { /* TODO: select destination */ });
+            grid->Add(dest, 1, wxEXPAND);
+        }
+        inner->Add(grid, 0, wxEXPAND | wxTOP, 12);
+
+        auto* cv = new wxBoxSizer(wxVERTICAL);
+        cv->Add(inner, 1, wxEXPAND | wxALL, 18);
+        card->SetSizer(cv);
+        pad->Add(card, 0, wxEXPAND);
+    }
+
+    // ------------------------------------------------ 02 your route
+    {
+        pad->AddSpacer(18);
+        auto* panel = new RoundedPanel(content, kLpStrip, wxColour(), 10);
+        panel->SetLeftAccent(kLpAccent, 4);
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+
+        auto* left = new wxBoxSizer(wxVERTICAL);
+        left->SetMinSize(wxSize(panel->FromDIP(190), 0));
+        left->Add(Label(panel, "02  YOUR ROUTE TO " + v.destinations[0].name.Upper(), 6, kLpNavy, true));
+        left->Add(Label(panel, v.routeName, 15, kLpInk, true), 0, wxTOP, 6);
+        left->Add(Label(panel, v.routeLine, 7, kLpMuted), 0, wxTOP, 4);
+        row->Add(left, 0, wxALIGN_CENTER_VERTICAL);
+
+        auto* mid = new wxBoxSizer(wxVERTICAL);
+        auto* tracker = new wxBoxSizer(wxHORIZONTAL);
+        for (size_t i = 0; i < v.stops.size(); ++i) {
+            const bool last = (i + 1 == v.stops.size());
+            tracker->Add(StopDot(panel, last ? kLpRed : kLpNavy, 8), 0, wxALIGN_CENTER_VERTICAL);
+            tracker->Add(Label(panel, v.stops[i], 8, kLpInk, last), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 8);
+            if (!last)
+                tracker->Add(Icon(panel, kSvgChevronRight, kLpMuted, 12), 0,
+                             wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, 12);
+        }
+        mid->Add(tracker, 0);
+        mid->Add(Label(panel, v.routeNote, 7, kLpMuted), 0, wxTOP, 10);
+        row->Add(mid, 1, wxALIGN_CENTER_VERTICAL | wxLEFT, 24);
+
+        row->Add(new PillButton(panel, "Route details", *wxWHITE, kLpNavy, kLpBorder, 8,
+                                [] { /* TODO: route details */ }),
+                 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 16);
+
+        auto* pv = new wxBoxSizer(wxVERTICAL);
+        pv->AddSpacer(18);
+        pv->Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT, 22);
+        pv->AddSpacer(18);
+        panel->SetSizer(pv);
+        pad->Add(panel, 0, wxEXPAND);
+    }
+
+    // ------------------------------------------------ 03 choose shuttle
+    {
+        pad->AddSpacer(22);
+        auto* head = new wxBoxSizer(wxHORIZONTAL);
+        head->Add(Label(content, "03  Choose your shuttle & driver", 11, kLpInk, true), 0, wxALIGN_CENTER_VERTICAL);
+        head->AddStretchSpacer(1);
+        head->Add(Label(content, v.dateShort, 7, kLpMuted), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
+        head->Add(new PillButton(content, "Earliest departure", *wxWHITE, kLpNavy, kLpBorder, 8,
+                                 [] { /* TODO: sort dropdown */ },
+                                 SvgBundle(kSvgChevronDown, kLpNavy, 14), 8),
+                  0, wxALIGN_CENTER_VERTICAL);
+        pad->Add(head, 0, wxEXPAND);
+
+        auto* cards = new wxBoxSizer(wxHORIZONTAL);
+        bool first = true;
+        for (const auto& s : v.shuttles) {
+            const bool full = (s.occupied >= s.capacity);
+            const int available = s.capacity - s.occupied;
+
+            auto* card = new RoundedPanel(content, *wxWHITE, kLpBorder, 10);
+            auto* inner = new wxBoxSizer(wxVERTICAL);
+
+            // id + status badge
+            auto* top = new wxBoxSizer(wxHORIZONTAL);
+            top->Add(Icon(card, kSvgBus, kLpNavy, 16), 0, wxALIGN_CENTER_VERTICAL);
+            top->Add(Label(card, s.id, 10, kLpInk, true), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 10);
+            top->AddStretchSpacer(1);
+            top->Add(Badge(card, s.badge, s.badgeFill, s.badgeText), 0, wxALIGN_CENTER_VERTICAL);
+            inner->Add(top, 0, wxEXPAND);
+
+            // time + meta
+            auto* timeRow = new wxBoxSizer(wxHORIZONTAL);
+            timeRow->Add(Label(card, s.time, 22, kLpInk, true), 0, wxALIGN_BOTTOM);
+            timeRow->AddStretchSpacer(1);
+            timeRow->Add(Label(card, s.meta, 7, kLpMuted), 0, wxALIGN_BOTTOM | wxBOTTOM, 4);
+            inner->Add(timeRow, 0, wxEXPAND | wxTOP, 16);
+
+            // route / driver
+            auto* info = new wxFlexGridSizer(2, 4, 24);
+            info->AddGrowableCol(0, 1);
+            info->AddGrowableCol(1, 1);
+            info->Add(Label(card, "Route", 7, kLpMuted));
+            info->Add(Label(card, "Driver", 7, kLpMuted));
+            info->Add(Label(card, s.route, 9, kLpInk, true));
+            info->Add(Label(card, s.driver, 9, kLpInk, true));
+            inner->Add(info, 0, wxEXPAND | wxTOP, 16);
+
+            // seats + capacity bar
+            auto* seats = new wxBoxSizer(wxHORIZONTAL);
+            seats->Add(Label(card, wxString::Format("Seats %s %d/%d occupied", MidDot(), s.occupied, s.capacity),
+                             7, kLpMuted), 0, wxALIGN_CENTER_VERTICAL);
+            seats->AddStretchSpacer(1);
+            seats->Add(Label(card, wxString::Format("%d available", available), 7,
+                             full ? kLpRed : kLpGreen, true), 0, wxALIGN_CENTER_VERTICAL);
+            inner->Add(seats, 0, wxEXPAND | wxTOP, 14);
+            inner->Add(new CapacityBar(card, s.occupied, s.capacity, full ? kLpRed : kLpAccent),
+                       0, wxEXPAND | wxTOP, 6);
+
+            // action
+            if (full)
+                inner->Add(new PillButton(card, "Join waitlist", *wxWHITE, kLpNavy, kLpBorder, 8,
+                                          [] { /* TODO: join waitlist */ },
+                                          SvgBundle(kSvgClock, kLpNavy, 14), 10),
+                           0, wxEXPAND | wxTOP, 14);
+            else
+                inner->Add(new PillButton(card, "Reserve seat", kLpNavy, *wxWHITE, wxColour(), 8,
+                                          [] { /* TODO: reserve seat */ },
+                                          SvgBundle(kSvgArrowRight, *wxWHITE, 14), 10),
+                           0, wxEXPAND | wxTOP, 14);
+
+            auto* cv = new wxBoxSizer(wxVERTICAL);
+            cv->Add(inner, 1, wxEXPAND | wxALL, 20);
+            card->SetSizer(cv);
+            cards->Add(card, 1, wxEXPAND | (first ? 0 : wxLEFT), 18);
+            first = false;
+        }
+        pad->Add(cards, 0, wxEXPAND | wxTOP, 14);
+    }
+
+    // ------------------------------------------------ bottom two columns
+    {
+        pad->AddSpacer(18);
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+
+        // left: explore other connections
+        {
+            auto* card = new RoundedPanel(content, *wxWHITE, kLpBorder, 10);
+            auto* inner = new wxBoxSizer(wxVERTICAL);
+            auto* head = new wxBoxSizer(wxHORIZONTAL);
+            head->Add(Label(card, "Explore other campus connections", 9, kLpInk, true), 0, wxALIGN_CENTER_VERTICAL);
+            head->AddStretchSpacer(1);
+            head->Add(Link(card, "Full schedule  " + ArrowRight(), 7, kLpNavy, true,
+                           [] { /* TODO: open full schedule */ }),
+                      0, wxALIGN_CENTER_VERTICAL);
+            inner->Add(head, 0, wxEXPAND);
+
+            auto* grid = new wxFlexGridSizer(5, 16, 20);
+            grid->AddGrowableCol(1, 3);
+            grid->AddGrowableCol(2, 3);
+            for (const auto& c : v.connections) {
+                grid->Add(Label(card, c.place, 8, kLpInk, true), 0, wxALIGN_CENTER_VERTICAL);
+                grid->Add(Label(card, c.route, 7, kLpMuted), 0, wxALIGN_CENTER_VERTICAL);
+                grid->Add(Label(card, c.shuttle, 7, kLpMuted), 0, wxALIGN_CENTER_VERTICAL);
+                grid->Add(Label(card, c.time, 8, kLpInk, true), 0, wxALIGN_CENTER_VERTICAL);
+                grid->Add(Badge(card, c.availability, kLpGreenBg, kLpGreen), 0, wxALIGN_CENTER_VERTICAL);
+            }
+            inner->Add(grid, 0, wxEXPAND | wxTOP, 18);
+
+            auto* cv = new wxBoxSizer(wxVERTICAL);
+            cv->Add(inner, 1, wxEXPAND | wxALL, 20);
+            card->SetSizer(cv);
+            row->Add(card, 2, wxEXPAND);
+        }
+        row->AddSpacer(18);
+
+        // right: seat ready (solid navy)
+        {
+            auto* card = new RoundedPanel(content, kLpNavy, wxColour(), 10);
+            auto* inner = new wxBoxSizer(wxVERTICAL);
+            auto* head = new wxBoxSizer(wxHORIZONTAL);
+            head->Add(Icon(card, kSvgShield, *wxWHITE, 18), 0, wxALIGN_CENTER_VERTICAL);
+            head->Add(Label(card, "Your seat, ready when you are.", 9, *wxWHITE, true), 0,
+                      wxALIGN_CENTER_VERTICAL | wxLEFT, 10);
+            inner->Add(head, 0, wxEXPAND);
+            auto* para = Label(card,
+                               "Arrive 10 minutes early. Keep your digital pass and student ID ready for boarding.",
+                               7, kLpNavMuted);
+            para->Wrap(card->FromDIP(250));
+            inner->Add(para, 0, wxTOP, 12);
+            inner->Add(Link(card, "Read boarding guidelines  " + ArrowUp(), 7, *wxWHITE, true,
+                            [] { /* TODO: boarding guidelines */ }),
+                       0, wxTOP, 14);
+
+            auto* cv = new wxBoxSizer(wxVERTICAL);
+            cv->Add(inner, 1, wxEXPAND | wxALL, 20);
+            card->SetSizer(cv);
+            row->Add(card, 1, wxEXPAND);
+        }
+        pad->Add(row, 0, wxEXPAND);
+    }
+
+    content->SetSizer(outer);
+    content->FitInside();
+    rs->Add(content, 1, wxEXPAND);
+    right->SetSizer(rs);
+    shellSizer->Add(right, 1, wxEXPAND);
+    shell->SetSizer(shellSizer);
+    return shell;
+}
