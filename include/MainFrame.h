@@ -15,7 +15,7 @@ public:
 
 private:
     enum class Page {
-        Landing, RoleSelect, Login, Dashboard, StudentDashboard, Reserve, Reservations,
+        Landing, RoleSelect, Login, Dashboard, StudentDashboard, Profile, Reserve, Reservations,
         DigitalPass, Routes, Schedules, Passengers, Drivers, DriverDashboard,
         AssignedTrips, Manifest, Boarding, TripHistory, Monitoring, Payments, Reports, Settings
     };
@@ -24,6 +24,7 @@ private:
     wxScrolledWindow* StartPage(const wxString& title, const wxString& subtitle);
     wxWindow* BuildPage(Page page);
     void ShowPage(Page page);
+    void RenderPage(Page page);
     void RefreshCurrentPage();
     void UpdateNavigationStyle();
     void RebuildNavigation();
@@ -41,10 +42,11 @@ private:
     void ShowReservationDetails(long rowIndex);
 
     wxWindow* BuildDashboard();
-    wxWindow* BuildLandingPage();
+    wxScrolledWindow* BuildLandingPage();
     wxWindow* BuildRoleSelectPage();
     wxWindow* BuildLoginPage();
     wxWindow* BuildStudentDashboard();
+    wxWindow* BuildStudentProfilePage();
     wxWindow* BuildReservationPage();
     wxWindow* BuildReservationsPage();
     wxWindow* BuildRoutesPage();
@@ -67,7 +69,9 @@ private:
     std::vector<ReservationRecord> m_reservations{SampleReservations()};
     std::vector<PassengerRecord> m_passengers{SamplePassengers()};
     std::vector<DriverRecord> m_drivers{SampleDrivers()};
+    std::vector<std::string> m_paymentAudit;
     wxPanel* m_pageHost{};
+    wxPanel* m_topbar{};
     wxPanel* m_sidebar{};
     wxScrolledWindow* m_navScroll{};
     wxBoxSizer* m_navSizer{};
@@ -76,6 +80,7 @@ private:
     wxStaticText* m_pageSubtitle{};
     std::vector<std::pair<Page, wxButton*>> m_navigation;
     Page m_currentPage{Page::Dashboard};
+    unsigned long m_pageRevision{0};
     UserRole m_selectedRole{UserRole::None};
     UserRole m_userRole{UserRole::None};
     std::string m_currentUserId;

@@ -7,6 +7,17 @@ bool IsBookable(const ScheduleRecord& schedule) {
     return schedule.availableSeats > 0 && schedule.status != "Full" &&
            schedule.status != "On Route" && schedule.status != "Completed";
 }
+
+bool IsAfterBookingCutoff(const wxString& dateText, const std::string& departureText) {
+    wxDateTime date;
+    wxDateTime time;
+    if (!date.ParseISODate(dateText) || !time.ParseTime(wxString::FromUTF8(departureText))) return false;
+    date.SetHour(time.GetHour());
+    date.SetMinute(time.GetMinute());
+    date.SetSecond(0);
+    const wxDateTime bookingCutoff = date.Subtract(wxTimeSpan(0, 30, 0));
+    return wxDateTime::Now() >= bookingCutoff;
+}
 }
 
 ReservationDialog::ReservationDialog(wxWindow* parent,
@@ -61,8 +72,12 @@ ReservationDialog::ReservationDialog(wxWindow* parent,
     addField("Departure schedule *", m_schedule);
     addField("Number of seats *", m_seats);
     addField("Payment method *", m_payment);
-    addField("GCash reference", m_paymentReference);
+    addField("Online payment reference", m_paymentReference);
     root->Add(form, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 18);
+
+    m_joinWaitlist = new wxCheckBox(this, wxID_ANY,
+        "Join the waitlist if this departure cannot fit all requested seats");
+    root->Add(m_joinWaitlist, 0, wxLEFT | wxRIGHT | wxBOTTOM, 18);
 
     m_summary = new wxStaticText(this, wxID_ANY, wxEmptyString);
     m_summary->SetForegroundColour(wxColour(21, 101, 192));
@@ -80,6 +95,7 @@ ReservationDialog::ReservationDialog(wxWindow* parent,
     m_route->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { UpdateScheduleChoices(); });
     m_schedule->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { UpdateSummary(); });
     m_seats->Bind(wxEVT_SPINCTRL, [this](wxCommandEvent&) { UpdateSummary(); });
+    m_joinWaitlist->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { UpdateScheduleChoices(); });
     m_payment->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) {
         m_paymentReference->Enable(m_payment->GetSelection() > 0);
     });
@@ -92,10 +108,14 @@ void ReservationDialog::UpdateScheduleChoices() {
     const int routeIndex = m_route->GetSelection();
     m_schedule->Clear();
     for (const auto& schedule : m_schedules) {
-        if ((routeIndex < 0 || schedule.routeId != m_routes[static_cast<size_t>(routeIndex)].id) || !IsBookable(schedule))
+        const bool routeMatches = routeIndex >= 0 && routeIndex < static_cast<int>(m_routes.size()) &&
+                                  schedule.routeId == m_routes[static_cast<size_t>(routeIndex)].id;
+        const bool active = schedule.status != "On Route" && schedule.status != "Completed";
+        if (!routeMatches || (m_joinWaitlist->GetValue() ? !active : !IsBookable(schedule)))
             continue;
-        m_schedule->Append(wxString::FromUTF8(schedule.id + "  |  " + schedule.departure +
-                                              "  |  " + schedule.status));
+        m_schedule->Append(wxString::Format("%s  |  %s  |  %d seat(s) left",
+            wxString::FromUTF8(schedule.id), wxString::FromUTF8(schedule.departure),
+            schedule.availableSeats));
     }
     if (m_schedule->GetCount() > 0) m_schedule->SetSelection(0);
     UpdateSummary();
@@ -107,7 +127,9 @@ void ReservationDialog::UpdateSummary() {
     if (routeIndex >= 0) {
         int visibleIndex = 0;
         for (size_t i = 0; i < m_schedules.size(); ++i) {
-            if (m_schedules[i].routeId != m_routes[static_cast<size_t>(routeIndex)].id || !IsBookable(m_schedules[i])) continue;
+            const bool active = m_schedules[i].status != "On Route" && m_schedules[i].status != "Completed";
+            if (m_schedules[i].routeId != m_routes[static_cast<size_t>(routeIndex)].id ||
+                (m_joinWaitlist->GetValue() ? !active : !IsBookable(m_schedules[i]))) continue;
             if (visibleIndex++ == m_schedule->GetSelection()) {
                 scheduleIndex = static_cast<int>(i);
                 break;
@@ -115,11 +137,13 @@ void ReservationDialog::UpdateSummary() {
         }
     }
     if (scheduleIndex < 0) {
-        m_summary->SetLabel("No departure is available for this route.");
+        m_summary->SetLabel("No matching departure is available for this route.");
         return;
     }
     const auto& schedule = m_schedules[static_cast<size_t>(scheduleIndex)];
-    m_summary->SetLabel(wxString::Format("Summary: %s | %s | %s | %d seat(s) available",
+    const bool waitlisted = m_joinWaitlist->GetValue() && m_seats->GetValue() > schedule.availableSeats;
+    m_summary->SetLabel(wxString::Format("%s: %s | %s | %s | %d seat(s) available",
+        waitlisted ? "Waitlist request" : "Reservation summary",
         wxString::FromUTF8(schedule.routeId), wxString::FromUTF8(schedule.departure),
         wxString::FromUTF8(schedule.shuttle), schedule.availableSeats));
 }
@@ -137,7 +161,9 @@ ReservationDraft ReservationDialog::GetDraft() const {
     int visibleIndex = 0;
     if (draft.routeIndex >= 0) {
         for (size_t i = 0; i < m_schedules.size(); ++i) {
-            if (m_schedules[i].routeId != m_routes[static_cast<size_t>(draft.routeIndex)].id || !IsBookable(m_schedules[i])) continue;
+            const bool active = m_schedules[i].status != "On Route" && m_schedules[i].status != "Completed";
+            if (m_schedules[i].routeId != m_routes[static_cast<size_t>(draft.routeIndex)].id ||
+                (m_joinWaitlist->GetValue() ? !active : !IsBookable(m_schedules[i]))) continue;
             if (visibleIndex++ == visibleSelection) {
                 draft.scheduleIndex = static_cast<int>(i);
                 break;
@@ -145,6 +171,8 @@ ReservationDraft ReservationDialog::GetDraft() const {
         }
     }
     draft.seatCount = m_seats->GetValue();
+    draft.joinWaitlist = m_joinWaitlist->GetValue() && draft.scheduleIndex >= 0 &&
+        draft.seatCount > m_schedules[static_cast<size_t>(draft.scheduleIndex)].availableSeats;
     return draft;
 }
 
@@ -152,6 +180,7 @@ void ReservationDialog::OnSubmit(wxCommandEvent&) {
     const auto draft = GetDraft();
     wxDateTime date;
     if (draft.passenger.empty() || draft.studentId.empty() || draft.travelDate.empty() ||
+        draft.paymentMethod.empty() || draft.seatCount < 1 ||
         draft.routeIndex < 0 || draft.scheduleIndex < 0) {
         wxMessageBox("Complete the required fields and select a route with a departure.",
                      "Reservation details required", wxOK | wxICON_WARNING, this);
@@ -162,11 +191,16 @@ void ReservationDialog::OnSubmit(wxCommandEvent&) {
                      wxOK | wxICON_WARNING, this);
         return;
     }
-    if (draft.paymentMethod != "Cash" && draft.paymentReference.empty()) {
+    if (draft.scheduleIndex >= 0 && IsAfterBookingCutoff(draft.travelDate,
+            m_schedules[static_cast<size_t>(draft.scheduleIndex)].departure)) {
+        wxMessageBox("Reservations close 30 minutes before departure. Choose a later date or trip.",
+                     "Booking cutoff passed", wxOK | wxICON_WARNING, this);
+        return;
+    }
+    if (!draft.joinWaitlist && draft.paymentMethod != "Cash" && draft.paymentReference.empty()) {
         wxMessageBox("Enter the online payment reference, or choose Cash.",
                      "Payment reference required", wxOK | wxICON_WARNING, this);
         return;
     }
     EndModal(wxID_OK);
-    // TODO [Justin Axcel C. Magpily]: Continue student reservation UI work, payment-method validation, and digital-pass presentation.
 }

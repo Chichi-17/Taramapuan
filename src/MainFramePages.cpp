@@ -2,6 +2,10 @@
 #include "ReservationDialog.h"
 #include "UiHelpers.h"
 #include <wx/dateevt.h>
+#include <wx/filename.h>
+#include <wx/image.h>
+#include <wx/statbmp.h>
+#include <wx/stdpaths.h>
 #include <wx/textdlg.h>
 #include <algorithm>
 #include <memory>
@@ -14,6 +18,7 @@ wxWindow* MainFrame::BuildPage(Page page) {
     case Page::Login: return BuildLoginPage();
     case Page::Dashboard: return BuildDashboard();
     case Page::StudentDashboard: return BuildStudentDashboard();
+    case Page::Profile: return BuildStudentProfilePage();
     case Page::Reserve: return BuildReservationPage();
     case Page::Reservations: return BuildReservationsPage();
     case Page::Routes: return BuildRoutesPage();
@@ -76,71 +81,6 @@ wxWindow* MainFrame::BuildDashboard() {
     return page;
 }
 
-wxWindow* MainFrame::BuildLandingPage() {
-    auto* page = StartPage("TaraMapuan", "Your Campus Ride, Made Easier.");
-    auto* layout = static_cast<wxBoxSizer*>(page->GetSizer());
-    auto* header = new wxBoxSizer(wxHORIZONTAL);
-    auto* brand = new wxStaticText(page, wxID_ANY, "TaraMapuan  |  Campus Shuttle System");
-    brand->SetFont(wxFontInfo(14).Bold());
-    brand->SetForegroundColour(kNavy);
-    header->Add(brand, 1, wxALIGN_CENTER_VERTICAL);
-    auto* home = MakeButton(page, "Home");
-    auto* about = MakeButton(page, "About");
-    auto* login = MakeButton(page, "Login", true);
-    header->Add(home, 0, wxRIGHT, 6); header->Add(about, 0, wxRIGHT, 6); header->Add(login, 0);
-    layout->Add(header, 0, wxEXPAND | wxALL, 12);
-
-    wxBoxSizer* heroInner{};
-    auto* hero = MakeCard(page, "Your Campus Ride, Made Easier.", heroInner);
-    auto* statement = new wxStaticText(hero, wxID_ANY,
-        "Reserve your shuttle seat, check departure schedules, and experience a more convenient and organized campus transportation system.");
-    statement->Wrap(850);
-    statement->SetFont(wxFontInfo(13));
-    heroInner->Add(statement, 0, wxEXPAND | wxBOTTOM, 14);
-    auto* heroActions = new wxBoxSizer(wxHORIZONTAL);
-    auto* getStarted = MakeButton(hero, "Get Started", true);
-    auto* explore = MakeButton(hero, "Explore Features");
-    heroActions->Add(getStarted, 0, wxRIGHT, 8); heroActions->Add(explore, 0);
-    heroInner->Add(heroActions, 0);
-    layout->Add(hero, 0, wxEXPAND | wxALL, 12);
-
-    wxBoxSizer* featureInner{};
-    auto* features = MakeCard(page, "Features", featureInner);
-    const std::pair<const char*, const char*> cards[] = {
-        {"Easy Reservations", "Reserve seats before departure."},
-        {"Schedules and Availability", "View routes, departure times, and available seats."},
-        {"Digital Shuttle Pass", "Review reservation, seat, and payment details."},
-        {"Organized Boarding", "Help drivers review passengers and manage boarding."}
-    };
-    auto* featureGrid = new wxGridSizer(2, 8, 8);
-    for (const auto& item : cards) {
-        wxBoxSizer* cardInner{};
-        auto* card = MakeCard(features, item.first, cardInner);
-        auto* text = new wxStaticText(card, wxID_ANY, item.second);
-        text->Wrap(360);
-        cardInner->Add(text, 0, wxEXPAND);
-        featureGrid->Add(card, 1, wxEXPAND);
-    }
-    featureInner->Add(featureGrid, 0, wxEXPAND);
-    layout->Add(features, 0, wxEXPAND | wxALL, 12);
-
-    wxBoxSizer* howInner{};
-    auto* how = MakeCard(page, "How It Works", howInner);
-    howInner->Add(new wxStaticText(how, wxID_ANY,
-        "1. Choose Student or Driver.    2. Log in to the demo portal.    3. Reserve a seat or manage an assigned trip."), 0, wxEXPAND);
-    layout->Add(how, 0, wxEXPAND | wxALL, 12);
-    auto* footer = new wxStaticText(page, wxID_ANY, "TaraMapuan  |  Campus mobility, made more organized.");
-    footer->SetForegroundColour(kMuted);
-    layout->Add(footer, 0, wxALIGN_CENTER | wxALL, 14);
-
-    home->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { ShowPage(Page::Landing); });
-    about->Bind(wxEVT_BUTTON, [page, how](wxCommandEvent&) { page->Scroll(0, how->GetPosition().y / 10); how->SetFocus(); });
-    login->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { ShowPage(Page::RoleSelect); });
-    getStarted->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { ShowPage(Page::RoleSelect); });
-    explore->Bind(wxEVT_BUTTON, [page, features](wxCommandEvent&) { page->Scroll(0, features->GetPosition().y / 10); features->SetFocus(); });
-    return page;
-}
-
 wxWindow* MainFrame::BuildRoleSelectPage() {
     auto* page = StartPage("Welcome to TaraMapuan", "Choose your portal to continue.");
     auto* layout = static_cast<wxBoxSizer*>(page->GetSizer());
@@ -183,7 +123,7 @@ wxWindow* MainFrame::BuildLoginPage() {
     inner->Add(id, 0, wxEXPAND | wxBOTTOM, 10);
     inner->Add(new wxStaticText(card, wxID_ANY, "Password"), 0, wxBOTTOM, 4);
     inner->Add(password, 0, wxEXPAND | wxBOTTOM, 10);
-    const wxString credentials = student ? "Demo access: S-2022-0148 / student123" : "Demo access: DR-001 / driver123";
+    const wxString credentials = student ? "Demo access: 2025164253 / student123" : "Demo access: DR-001 / driver123";
     auto* demo = new wxStaticText(card, wxID_ANY, credentials);
     demo->SetForegroundColour(kMuted);
     inner->Add(demo, 0, wxBOTTOM, 14);
@@ -196,7 +136,7 @@ wxWindow* MainFrame::BuildLoginPage() {
     submit->Bind(wxEVT_BUTTON, [this, id, password, student](wxCommandEvent&) {
         const wxString enteredId = id->GetValue().Strip(wxString::both);
         const bool credentialOk = student
-            ? (enteredId == "S-2022-0148" && password->GetValue() == "student123")
+            ? (enteredId == "2025164253" && password->GetValue() == "student123")
             : (password->GetValue() == "driver123" && std::any_of(m_drivers.begin(), m_drivers.end(),
                 [&](const DriverRecord& driver) { return W(driver.id) == enteredId; }));
         if (!credentialOk) {
@@ -236,24 +176,199 @@ wxWindow* MainFrame::BuildStudentDashboard() {
     metrics->Add(MetricCard(page, "PENDING PAYMENTS", W(std::to_string(pending)), "Demo review status", kAmber), 1, wxEXPAND);
     metrics->Add(MetricCard(page, "CONFIRMED", W(std::to_string(confirmed)), "Active reservations", kPrimaryRed), 1, wxEXPAND);
     layout->Add(metrics, 0, wxEXPAND | wxALL, 10);
+    auto* tripTools = new wxBoxSizer(wxHORIZONTAL);
+    auto* sort = new wxChoice(page, wxID_ANY);
+    sort->Append("Departure time");
+    sort->Append("Most seats available");
+    sort->Append("Route name");
+    sort->SetSelection(0);
     auto* reserve = MakeButton(page, "Reserve a Seat", true);
-    layout->Add(reserve, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
+    tripTools->Add(new wxStaticText(page, wxID_ANY, "Sort trips:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+    tripTools->Add(sort, 0, wxRIGHT, 10);
+    tripTools->AddStretchSpacer();
+    tripTools->Add(reserve, 0);
+    layout->Add(tripTools, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
     reserve->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { ShowPage(Page::Reserve); });
     wxBoxSizer* inner{};
     auto* card = MakeCard(page, "Upcoming Shuttle Trips", inner);
-    auto* table = MakeTable(card, {"Trip ID", "Route", "Pickup", "Departure", "Capacity", "Available", "Trip Status", "Reservation"}, {90, 140, 125, 95, 75, 70, 100, 110});
-    for (size_t i = 0; i < m_schedules.size(); ++i) {
-        const auto& trip = m_schedules[i];
-        if (!IsBookableTrip(trip)) continue;
+    auto* table = MakeTable(card, {"Trip ID", "Route", "Pickup", "Departure", "Seats", "Trip Status", "Reservation"}, {90, 150, 140, 100, 75, 100, 130});
+    auto* details = new wxStaticText(card, wxID_ANY, "Select a departure to see its pickup, arrival estimate, seats and reservation status.");
+    details->SetForegroundColour(kMuted);
+    auto populate = [this, table, sort, details]() {
+        table->DeleteAllItems();
+        std::vector<size_t> indices;
+        for (size_t i = 0; i < m_schedules.size(); ++i)
+            if (IsBookableTrip(m_schedules[i])) indices.push_back(i);
+        if (sort->GetSelection() == 1) {
+            std::stable_sort(indices.begin(), indices.end(), [this](size_t a, size_t b) {
+                return m_schedules[a].availableSeats > m_schedules[b].availableSeats;
+            });
+        } else if (sort->GetSelection() == 2) {
+            std::stable_sort(indices.begin(), indices.end(), [this](size_t a, size_t b) {
+                return m_schedules[a].routeId < m_schedules[b].routeId;
+            });
+        } else {
+            std::stable_sort(indices.begin(), indices.end(), [this](size_t a, size_t b) {
+                wxDateTime timeA, timeB;
+                timeA.ParseTime(W(m_schedules[a].departure));
+                timeB.ParseTime(W(m_schedules[b].departure));
+                return timeA < timeB;
+            });
+        }
+        for (const size_t i : indices) {
+            const auto& trip = m_schedules[i];
+            const auto route = std::find_if(m_routes.begin(), m_routes.end(), [&](const RouteRecord& item) { return item.id == trip.routeId; });
+            const wxString routeName = route == m_routes.end() ? W(trip.routeId) : W(route->name);
+            const wxString pickup = route == m_routes.end() ? wxString("Unknown") : W(route->pickup);
+            const auto reservation = std::find_if(m_reservations.begin(), m_reservations.end(), [&](const ReservationRecord& item) {
+                return item.studentId == m_currentUserId && item.scheduleIndex == static_cast<int>(i) && IsActiveReservation(item);
+            });
+            const wxString reservationStatus = reservation == m_reservations.end() ? wxString("Not reserved") : W(reservation->status);
+            AddRow(table, static_cast<long>(i), {W(trip.id), routeName, pickup, W(trip.departure),
+                wxString::Format("%d / %d", trip.availableSeats, trip.capacity), W(trip.status), reservationStatus});
+        }
+        details->SetLabel(indices.empty() ? "No upcoming departures currently have bookable seats." :
+            "Select a departure to see its pickup, arrival estimate, seats and reservation status.");
+    };
+    populate();
+    sort->Bind(wxEVT_CHOICE, [populate](wxCommandEvent&) { populate(); });
+    table->Bind(wxEVT_LIST_ITEM_SELECTED, [this, table, details](wxListEvent& event) {
+        const long data = static_cast<long>(table->GetItemData(event.GetIndex()));
+        if (data < 0 || data >= static_cast<long>(m_schedules.size())) return;
+        const auto& trip = m_schedules[static_cast<size_t>(data)];
         const auto route = std::find_if(m_routes.begin(), m_routes.end(), [&](const RouteRecord& item) { return item.id == trip.routeId; });
+        const wxString routeName = route == m_routes.end() ? W(trip.routeId) : W(route->name);
         const wxString pickup = route == m_routes.end() ? wxString("Unknown") : W(route->pickup);
-        const auto reservation=std::find_if(m_reservations.begin(),m_reservations.end(),[&](const ReservationRecord& item){return item.studentId==m_currentUserId&&item.scheduleIndex==static_cast<int>(i)&&IsActiveReservation(item);});
-        const wxString reservationStatus=reservation==m_reservations.end()?wxString("Not reserved"):W(reservation->status);
-        AddRow(table, static_cast<long>(i), {W(trip.id), W(trip.routeId), pickup, W(trip.departure), W(std::to_string(trip.capacity)), W(std::to_string(trip.availableSeats)), W(trip.status), reservationStatus});
-    }
+        const wxString destination = route == m_routes.end() ? wxString("Unknown") : W(route->destination);
+        details->SetLabel(wxString::Format("%s  |  %s to %s\nPickup: %s  |  Departure: %s  |  Estimated arrival: %s\nSeats: %d of %d available  |  Status: %s",
+            W(trip.id), pickup, destination, pickup, W(trip.departure), W(trip.arrival),
+            trip.availableSeats, trip.capacity, W(trip.status)));
+    });
     inner->Add(table, 1, wxEXPAND);
+    inner->Add(details, 0, wxEXPAND | wxTOP, 10);
     layout->Add(card, 1, wxEXPAND | wxALL, 10);
-    // TODO [Justin Axcel C. Magpily]: Refine student dashboard UX and add trip detail selection and sorting.
+    return page;
+}
+
+wxWindow* MainFrame::BuildStudentProfilePage() {
+    auto* page = StartPage("My profile", "Manage your personal information and account details.");
+    auto* layout = static_cast<wxBoxSizer*>(page->GetSizer());
+
+    wxString studentName = "Student";
+    wxString studentNumber = W(m_currentUserId);
+    wxString course = "Not listed";
+    const auto student = std::find_if(m_passengers.begin(), m_passengers.end(), [&](const PassengerRecord& item) {
+        return item.studentId == m_currentUserId;
+    });
+    if (student != m_passengers.end()) {
+        studentName = W(student->name);
+        course = W(student->department);
+    }
+
+    auto* card = new wxPanel(page, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_SIMPLE);
+    card->SetBackgroundColour(*wxWHITE);
+    auto* cardLayout = new wxBoxSizer(wxVERTICAL);
+    auto* cardTitle = new wxStaticText(card, wxID_ANY, "Personal information");
+    cardTitle->SetFont(wxFontInfo(12).Bold());
+    cardTitle->SetForegroundColour(kNavy);
+    auto* cardSubtitle = new wxStaticText(card, wxID_ANY, "Your student details, all in one place.");
+    cardSubtitle->SetForegroundColour(kMuted);
+    cardLayout->Add(cardTitle, 0, wxBOTTOM, 4);
+    cardLayout->Add(cardSubtitle, 0, wxBOTTOM, 16);
+
+    auto* identity = new wxBoxSizer(wxHORIZONTAL);
+    wxFileName photoPath(wxStandardPaths::Get().GetExecutablePath());
+    photoPath.SetFullName(wxEmptyString);
+    photoPath.AppendDir("assets");
+    photoPath.SetFullName("studentpfp.jpg");
+    wxWindow* avatar = nullptr;
+    if (wxFileExists(photoPath.GetFullPath())) {
+        wxImage photo(photoPath.GetFullPath());
+        if (photo.IsOk()) {
+            const int sourceSize = std::min(photo.GetWidth(), photo.GetHeight());
+            const int cropX = (photo.GetWidth() - sourceSize) / 2;
+            const int cropY = photo.GetHeight() - sourceSize;
+            photo = photo.GetSubImage(wxRect(cropX, cropY, sourceSize, sourceSize));
+            photo.Rescale(144, 144, wxIMAGE_QUALITY_HIGH);
+            photo.InitAlpha();
+            const double center = 71.5;
+            const double radius = 70.0;
+            for (int y = 0; y < 144; ++y) {
+                for (int x = 0; x < 144; ++x) {
+                    const double dx = x - center;
+                    const double dy = y - center;
+                    photo.SetAlpha(x, y, dx * dx + dy * dy <= radius * radius ? 255 : 0);
+                }
+            }
+            avatar = new wxStaticBitmap(card, wxID_ANY, wxBitmap(photo));
+        }
+    }
+    if (!avatar) {
+        auto* placeholder = new wxStaticText(card, wxID_ANY, "Student\nPhoto");
+        placeholder->SetBackgroundColour(wxColour(229, 235, 244));
+        placeholder->SetForegroundColour(kNavy);
+        avatar = placeholder;
+    }
+    avatar->SetMinSize(wxSize(144, 144));
+    identity->Add(avatar, 0, wxRIGHT, 20);
+
+    auto* identityCopy = new wxBoxSizer(wxVERTICAL);
+    identityCopy->AddStretchSpacer(1);
+    auto* nameRow = new wxBoxSizer(wxHORIZONTAL);
+    auto* name = new wxStaticText(card, wxID_ANY, studentName);
+    name->SetFont(wxFontInfo(17).Bold());
+    name->SetForegroundColour(kNavy);
+    nameRow->Add(name, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 10);
+    auto* verified = new wxStaticText(card, wxID_ANY, "Verified student");
+    verified->SetFont(wxFontInfo(8).Bold());
+    verified->SetForegroundColour(kGreen);
+    nameRow->Add(verified, 0, wxALIGN_CENTER_VERTICAL);
+    identityCopy->Add(nameRow, 0, wxBOTTOM, 6);
+    auto* role = new wxStaticText(card, wxID_ANY, "Student passenger");
+    role->SetForegroundColour(kMuted);
+    identityCopy->Add(role, 0);
+    identityCopy->AddStretchSpacer(1);
+    identity->Add(identityCopy, 1, wxEXPAND);
+    cardLayout->Add(identity, 0, wxEXPAND | wxBOTTOM, 18);
+
+    auto* details = new wxFlexGridSizer(2, 10, 10);
+    details->AddGrowableCol(0, 1);
+    details->AddGrowableCol(1, 1);
+    const auto addDetail = [card, details](const wxString& label, const wxString& value) {
+        auto* field = new wxPanel(card, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_SIMPLE);
+        field->SetBackgroundColour(wxColour(248, 250, 253));
+        auto* fieldLayout = new wxBoxSizer(wxVERTICAL);
+        auto* caption = new wxStaticText(field, wxID_ANY, label.Upper());
+        caption->SetForegroundColour(kMuted);
+        caption->SetFont(wxFontInfo(8).Bold());
+        auto* content = new wxStaticText(field, wxID_ANY, value);
+        content->SetForegroundColour(kNavy);
+        content->SetFont(wxFontInfo(10).Bold());
+        fieldLayout->Add(caption, 0, wxBOTTOM, 5);
+        fieldLayout->Add(content, 0);
+        field->SetSizer(fieldLayout);
+        details->Add(field, 1, wxEXPAND);
+    };
+    addDetail("Student number", studentNumber);
+    addDetail("Course", course);
+    cardLayout->Add(details, 0, wxEXPAND | wxBOTTOM, 16);
+
+    auto* actions = new wxBoxSizer(wxHORIZONTAL);
+    auto* editProfile = MakeButton(card, "Edit Profile", true);
+    auto* changePassword = MakeButton(card, "Change Password");
+    actions->Add(editProfile, 0, wxRIGHT, 8);
+    actions->Add(changePassword, 0);
+    cardLayout->Add(actions, 0);
+    editProfile->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        wxMessageBox("Profile editing is not connected in this demo.", "Demo profile",
+                     wxOK | wxICON_INFORMATION, this);
+    });
+    changePassword->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        wxMessageBox("Password changes are not connected to demo authentication.", "Demo account",
+                     wxOK | wxICON_INFORMATION, this);
+    });
+    card->SetSizer(cardLayout);
+    layout->Add(card, 0, wxEXPAND | wxALL, 12);
     return page;
 }
 
@@ -291,8 +406,21 @@ void MainFrame::CreateReservation() {
                              m_userRole == UserRole::Student ? m_currentUserId : std::string{});
     if(dialog.ShowModal()!=wxID_OK)return;
     const ReservationDraft draft=dialog.GetDraft();
-    if(draft.scheduleIndex<0||draft.scheduleIndex>=static_cast<int>(m_schedules.size()))return;
+    if(draft.routeIndex<0||draft.routeIndex>=static_cast<int>(m_routes.size())||
+       draft.scheduleIndex<0||draft.scheduleIndex>=static_cast<int>(m_schedules.size())||draft.seatCount<1){
+        wxMessageBox("The selected route, departure, or seat count is no longer valid.",
+                     "Reservation details changed",wxOK|wxICON_WARNING,this);return;
+    }
     auto& schedule=m_schedules[static_cast<size_t>(draft.scheduleIndex)];
+    if(schedule.routeId!=m_routes[static_cast<size_t>(draft.routeIndex)].id||
+       schedule.status=="On Route"||schedule.status=="Completed"){
+        wxMessageBox("That departure is no longer available for booking.",
+                     "Departure unavailable",wxOK|wxICON_WARNING,this);return;
+    }
+    if(IsPastDepartureCutoff(draft.travelDate+" "+W(schedule.departure),30)){
+        wxMessageBox("Reservations close 30 minutes before departure.",
+                     "Booking cutoff passed",wxOK|wxICON_WARNING,this);return;
+    }
     if (m_userRole == UserRole::Student && draft.studentId != W(m_currentUserId)) {
         wxMessageBox("Use the student ID associated with your current demo login.", "Student ID mismatch", wxOK | wxICON_WARNING, this);
         return;
@@ -305,34 +433,37 @@ void MainFrame::CreateReservation() {
         wxMessageBox("This student already has an active reservation for the selected departure.", "Duplicate reservation", wxOK | wxICON_WARNING, this);
         return;
     }
-    if(draft.seatCount>schedule.availableSeats){
+    const bool waitlisted=draft.joinWaitlist&&draft.seatCount>schedule.availableSeats;
+    if(draft.seatCount>schedule.availableSeats&&!waitlisted){
         wxMessageBox(wxString::Format("Only %d seat(s) remain on this departure.",schedule.availableSeats),"Not enough seats",wxOK|wxICON_WARNING,this);return;
     }
     const wxString date=draft.travelDate;
     const std::string id="TS-"+std::to_string(m_reservationSequence++);
     const std::string payment=Utf8(draft.paymentMethod);
-    const std::string status=payment=="Cash"?"Due on board":"Awaiting review (demo)";
-    const std::string seat=AllocateSeatRange(m_reservations,draft.scheduleIndex,draft.seatCount,schedule.capacity);
+    const std::string status=waitlisted?"Waitlisted":"Confirmed (demo)";
+    const std::string paymentStatus=waitlisted?"Not due until a seat is offered":(payment=="Cash"?"Due on board":"Awaiting review (demo)");
+    const std::string seat=waitlisted?"--":AllocateSeatRange(m_reservations,draft.scheduleIndex,draft.seatCount,schedule.capacity);
     if(seat.empty()){wxMessageBox("No contiguous seat assignment could be created for this departure.","Seat assignment failed",wxOK|wxICON_WARNING,this);return;}
     m_reservations.push_back({id,Utf8(draft.passenger),studentId,m_routes[static_cast<size_t>(draft.routeIndex)].name,
-        Utf8(date)+"  "+Utf8(schedule.departure),seat,payment,status,"Confirmed (demo)",draft.seatCount,draft.scheduleIndex,
+        Utf8(date)+"  "+Utf8(schedule.departure),seat,payment,paymentStatus,status,draft.seatCount,draft.scheduleIndex,
         Utf8(draft.paymentReference),"Waiting"});
-    schedule.availableSeats-=draft.seatCount;
+    if(!waitlisted)schedule.availableSeats-=draft.seatCount;
     if(schedule.availableSeats==0)schedule.status="Full";
     SaveReservations();
     m_selectedReservationId = id;
-    wxMessageBox(wxString::Format("Sample reservation %s was added. No external booking or payment occurred.",W(id)),
+    wxMessageBox(waitlisted
+        ? wxString::Format("Reservation %s was added to the departure waitlist. Payment is not due unless a seat is offered.",W(id))
+        : wxString::Format("Sample reservation %s was added. No external booking or payment occurred.",W(id)),
                  "Reservation created",wxOK|wxICON_INFORMATION,this);
     SetStatusText("Local preview updated  |  Sample reservation "+W(id));
     RefreshCurrentPage();
-    // TODO [Justin Axcel C. Magpily]: Continue improving reservation creation, duplicate checks, and seat release/cancellation UX.
     // TODO: Add reservation cutoff/no-show handling, notification delivery, and an auditable reservation event log.
 }
 
 wxWindow* MainFrame::BuildReservationsPage() {
     auto*page=StartPage("Reservations","Search, inspect, and cancel fictional passenger reservations.");auto*layout=static_cast<wxBoxSizer*>(page->GetSizer());
     auto*bar=new wxBoxSizer(wxHORIZONTAL);auto*search=new wxTextCtrl(page,wxID_ANY,wxEmptyString,wxDefaultPosition,wxSize(260,-1));search->SetHint("Search passenger, ID, route, reference");
-    auto*filter=new wxChoice(page,wxID_ANY);for(const char*value:{"All statuses","Pending","Confirmed (demo)","Cancelled"})filter->Append(value);filter->SetSelection(0);
+    auto*filter=new wxChoice(page,wxID_ANY);for(const char*value:{"All statuses","Pending","Confirmed (demo)","Waitlisted","Cancelled"})filter->Append(value);filter->SetSelection(0);
     auto*create=MakeButton(page,"+ New Reservation",true);auto*details=MakeButton(page,"View Details");auto*cancel=MakeButton(page,"Cancel Reservation");
     bar->Add(search,0,wxRIGHT,8);bar->Add(filter,0,wxRIGHT,8);bar->AddStretchSpacer();bar->Add(create,0,wxRIGHT,6);bar->Add(details,0,wxRIGHT,6);bar->Add(cancel,0);
     layout->Add(bar,0,wxEXPAND|wxALL,10);
@@ -355,17 +486,56 @@ void MainFrame::ShowReservationDetails(long rowIndex){
 }
 
 void MainFrame::CancelReservation(long rowIndex){
-    if(rowIndex<0||rowIndex>=static_cast<long>(m_reservations.size()))return;auto&r=m_reservations[static_cast<size_t>(rowIndex)];if(r.status=="Cancelled"){wxMessageBox("This sample reservation is already cancelled.","Reservation status",wxOK|wxICON_INFORMATION,this);return;}
-    if (r.boardingStatus == "Boarded") { wxMessageBox("A boarded passenger cannot cancel this reservation.", "Cancellation unavailable", wxOK | wxICON_WARNING, this); return; }
-    if (r.scheduleIndex >= 0 && r.scheduleIndex < static_cast<int>(m_schedules.size()) &&
-        (m_schedules[static_cast<size_t>(r.scheduleIndex)].status == "On Route" || m_schedules[static_cast<size_t>(r.scheduleIndex)].status == "Completed")) {
-        wxMessageBox("This trip has departed; its reservation can no longer be cancelled.", "Cancellation unavailable", wxOK | wxICON_WARNING, this);
-        return;
+    if(rowIndex<0||rowIndex>=static_cast<long>(m_reservations.size()))return;
+    auto& reservation=m_reservations[static_cast<size_t>(rowIndex)];
+    if(reservation.status=="Cancelled"){
+        wxMessageBox("This sample reservation is already cancelled.","Reservation status",wxOK|wxICON_INFORMATION,this);return;
     }
-    if(wxMessageBox("Cancel this sample reservation? Its seats will be returned to the schedule.","Confirm cancellation",wxYES_NO|wxNO_DEFAULT|wxICON_QUESTION,this)!=wxYES)return;
-    if(r.scheduleIndex>=0&&r.scheduleIndex<static_cast<int>(m_schedules.size())){auto&s=m_schedules[static_cast<size_t>(r.scheduleIndex)];s.availableSeats=std::min(s.capacity,s.availableSeats+r.seatCount);if(s.status=="Full")s.status="Available";}
-    r.status="Cancelled";r.paymentStatus="Not collected";r.boardingStatus="Cancelled";SaveReservations();SetStatusText("Sample reservation cancelled; its seats were released.");RefreshCurrentPage();
-    // TODO [Justin Axcel C. Magpily]: Add reservation cutoff rules, cancellation eligibility guidance, and waitlist seat release.
+    if(reservation.boardingStatus=="Boarded"){
+        wxMessageBox("A boarded passenger cannot cancel this reservation.","Cancellation unavailable",wxOK|wxICON_WARNING,this);return;
+    }
+    if(reservation.scheduleIndex<0||reservation.scheduleIndex>=static_cast<int>(m_schedules.size())){
+        wxMessageBox("The linked departure could not be found, so this reservation cannot be cancelled safely.",
+                     "Cancellation unavailable",wxOK|wxICON_WARNING,this);return;
+    }
+    auto& schedule=m_schedules[static_cast<size_t>(reservation.scheduleIndex)];
+    if(schedule.status=="On Route"||schedule.status=="Completed"||
+       IsPastDepartureCutoff(W(reservation.departure),30)){
+        wxMessageBox("Cancellation closes 30 minutes before departure. This trip can no longer be cancelled.",
+                     "Cancellation cutoff passed",wxOK|wxICON_WARNING,this);return;
+    }
+    if(wxMessageBox("Cancel this reservation? Allocated seats will be returned and may be offered to the next waitlisted passenger.",
+                    "Confirm cancellation",wxYES_NO|wxNO_DEFAULT|wxICON_QUESTION,this)!=wxYES)return;
+
+    const int scheduleIndex=reservation.scheduleIndex;
+    const int releasedSeats=HasAllocatedSeats(reservation)?reservation.seatCount:0;
+    reservation.status="Cancelled";
+    reservation.paymentStatus="Not collected";
+    reservation.boardingStatus="Cancelled";
+    if(releasedSeats>0){
+        schedule.availableSeats=std::min(schedule.capacity,schedule.availableSeats+releasedSeats);
+        if(schedule.availableSeats>0&&schedule.status=="Full")schedule.status="Available";
+    }
+
+    int promoted=0;
+    for(auto& waiting:m_reservations){
+        if(waiting.status!="Waitlisted"||waiting.scheduleIndex!=scheduleIndex)continue;
+        if(waiting.seatCount>schedule.availableSeats)break; // Preserve first-in, first-out order.
+        const std::string seat=AllocateSeatRange(m_reservations,scheduleIndex,waiting.seatCount,schedule.capacity);
+        if(seat.empty())break;
+        waiting.seat=seat;
+        waiting.status="Confirmed (demo)";
+        waiting.paymentStatus=waiting.paymentMethod=="Cash"?"Due on board":"Payment due after seat offer";
+        waiting.boardingStatus="Waiting";
+        schedule.availableSeats-=waiting.seatCount;
+        ++promoted;
+    }
+    if(schedule.availableSeats==0)schedule.status="Full";
+    SaveReservations();
+    SetStatusText(promoted>0?wxString::Format("Reservation cancelled; %d waitlisted passenger(s) received a seat offer.",promoted):wxString("Sample reservation cancelled; its seats were released."));
+    wxMessageBox(promoted>0?wxString::Format("Reservation cancelled. %d waitlisted passenger(s) were offered a seat.",promoted):wxString("Reservation cancelled. Its seat(s) were returned to the schedule."),
+                 "Cancellation complete",wxOK|wxICON_INFORMATION,this);
+    RefreshCurrentPage();
 }
 
 wxWindow* MainFrame::BuildRoutesPage(){
@@ -486,7 +656,7 @@ wxWindow* MainFrame::BuildDriverDashboard() {
     int trips = 0, passengers = 0, boarded = 0, pendingPayments = 0;
     for (const auto& trip : m_schedules) if (IsAssignedToDriver(trip,driver.id,driver.name) && trip.status != "Completed") ++trips;
     for (const auto& reservation : m_reservations) {
-        if (!IsActiveReservation(reservation) || reservation.scheduleIndex < 0 || reservation.scheduleIndex >= static_cast<int>(m_schedules.size())) continue;
+        if (!HasAllocatedSeats(reservation) || reservation.scheduleIndex < 0 || reservation.scheduleIndex >= static_cast<int>(m_schedules.size())) continue;
         if (!IsAssignedToDriver(m_schedules[static_cast<size_t>(reservation.scheduleIndex)],driver.id,driver.name)) continue;
         ++passengers;
         if (reservation.boardingStatus == "Boarded") ++boarded;
@@ -512,7 +682,7 @@ wxWindow* MainFrame::BuildDriverDashboard() {
         const auto& trip=m_schedules[static_cast<size_t>(m_selectedSchedule)];
         const auto route=std::find_if(m_routes.begin(),m_routes.end(),[&](const RouteRecord& item){return item.id==trip.routeId;});
         int booked=0,tripBoarded=0;
-        for(const auto& reservation:m_reservations) if(IsActiveReservation(reservation)&&reservation.scheduleIndex==m_selectedSchedule){++booked;if(reservation.boardingStatus=="Boarded")++tripBoarded;}
+        for(const auto& reservation:m_reservations) if(HasAllocatedSeats(reservation)&&reservation.scheduleIndex==m_selectedSchedule){++booked;if(reservation.boardingStatus=="Boarded")++tripBoarded;}
         const wxString pickup=route==m_routes.end()?wxString("Unknown"):W(route->pickup);
         inner->Add(new wxStaticText(card,wxID_ANY,wxString::Format("%s  |  %s\nPickup: %s   Departure: %s\nCapacity: %d   Booked: %d   Boarded: %d\nTrip status: %s",
             W(trip.id),route==m_routes.end()?W(trip.routeId):W(route->name),pickup,W(trip.departure),trip.capacity,booked,tripBoarded,W(trip.status))),0,wxEXPAND|wxBOTTOM,12);
@@ -524,7 +694,6 @@ wxWindow* MainFrame::BuildDriverDashboard() {
     auto* tripsButton=MakeButton(page,"View Assigned Trips");
     layout->Add(tripsButton,0,wxLEFT|wxRIGHT|wxBOTTOM,10);
     tripsButton->Bind(wxEVT_BUTTON,[this](wxCommandEvent&){ShowPage(Page::AssignedTrips);});
-    // TODO [Robby Ruth Abaquin]: Refine dashboard presentation while keeping all summary values data-driven.
     return page;
 }
 
@@ -537,7 +706,7 @@ wxWindow* MainFrame::BuildAssignedTripsPage() {
     auto* table=MakeTable(card,{"Trip ID","Route","Pickup","Departure","Capacity","Booked","Boarded","Status"},{90,145,130,95,75,65,65,95});
     for(size_t i=0;i<m_schedules.size();++i){const auto& trip=m_schedules[i];if(!IsAssignedToDriver(trip,driver.id,driver.name))continue;
         const auto route=std::find_if(m_routes.begin(),m_routes.end(),[&](const RouteRecord& item){return item.id==trip.routeId;});
-        int booked=0,boarded=0;for(const auto& reservation:m_reservations)if(IsActiveReservation(reservation)&&reservation.scheduleIndex==static_cast<int>(i)){++booked;if(reservation.boardingStatus=="Boarded")++boarded;}
+        int booked=0,boarded=0;for(const auto& reservation:m_reservations)if(HasAllocatedSeats(reservation)&&reservation.scheduleIndex==static_cast<int>(i)){++booked;if(reservation.boardingStatus=="Boarded")++boarded;}
         AddRow(table,static_cast<long>(i),{W(trip.id),route==m_routes.end()?W(trip.routeId):W(route->name),route==m_routes.end()?wxString("Unknown"):W(route->pickup),W(trip.departure),W(std::to_string(trip.capacity)),W(std::to_string(booked)),W(std::to_string(boarded)),W(trip.status)});
     }
     inner->Add(table,1,wxEXPAND);
@@ -547,7 +716,7 @@ wxWindow* MainFrame::BuildAssignedTripsPage() {
     depart->Bind(wxEVT_BUTTON,[this,table,selected](wxCommandEvent&){long row=selected();if(row<0){wxMessageBox("Select a trip first.","Trip required",wxOK|wxICON_INFORMATION,this);return;}UpdateTripStatus(static_cast<long>(table->GetItemData(row)),false);});
     complete->Bind(wxEVT_BUTTON,[this,table,selected](wxCommandEvent&){long row=selected();if(row<0){wxMessageBox("Select a trip first.","Trip required",wxOK|wxICON_INFORMATION,this);return;}UpdateTripStatus(static_cast<long>(table->GetItemData(row)),true);});
     layout->Add(card,1,wxEXPAND|wxALL,10);
-    // TODO [Robby Ruth Abaquin]: Extend operational trip rules and history based on final dispatch requirements.
+    auto* rule=new wxStaticText(page,wxID_ANY,"Operational rule: depart only from Scheduled status; completion requires every seated passenger to be checked in. Waitlisted requests do not count toward capacity or check-in.");rule->SetForegroundColour(kMuted);layout->Add(rule,0,wxLEFT|wxRIGHT|wxBOTTOM,10);
     return page;
 }
 
@@ -559,8 +728,8 @@ wxWindow* MainFrame::BuildManifestPage() {
     auto* bar=new wxBoxSizer(wxHORIZONTAL);auto* tripChoice=new wxChoice(page,wxID_ANY);int choiceIndex=0,selection=wxNOT_FOUND;
     for(size_t i=0;i<m_schedules.size();++i)if(IsAssignedToDriver(m_schedules[i],driver.id,driver.name)){tripChoice->Append(W(m_schedules[i].id+"  |  "+m_schedules[i].routeId+"  |  "+m_schedules[i].departure));if(static_cast<int>(i)==m_selectedSchedule)selection=choiceIndex;++choiceIndex;}
     if(tripChoice->GetCount()>0)tripChoice->SetSelection(selection==wxNOT_FOUND?0:selection);
-    auto* search=new wxTextCtrl(page,wxID_ANY);search->SetHint("Search ID, student, seat, or payment reference");auto* refresh=MakeButton(page,"Refresh");
-    bar->Add(tripChoice,0,wxRIGHT,8);bar->Add(search,1,wxRIGHT,8);bar->Add(refresh,0);layout->Add(bar,0,wxEXPAND|wxALL,10);
+    auto* search=new wxTextCtrl(page,wxID_ANY);search->SetHint("Search ID, student, seat, or payment reference");auto* paymentFilter=new wxChoice(page,wxID_ANY);for(const char* value:{"Any payment","Payment due","Paid / verified","Rejected"})paymentFilter->Append(value);paymentFilter->SetSelection(0);auto* boardingFilter=new wxChoice(page,wxID_ANY);for(const char* value:{"Any boarding","Waiting","Boarded","Waitlisted"})boardingFilter->Append(value);boardingFilter->SetSelection(0);auto* refresh=MakeButton(page,"Refresh");
+    bar->Add(tripChoice,0,wxRIGHT,8);bar->Add(search,1,wxRIGHT,8);bar->Add(paymentFilter,0,wxRIGHT,6);bar->Add(boardingFilter,0,wxRIGHT,6);bar->Add(refresh,0);layout->Add(bar,0,wxEXPAND|wxALL,10);
     auto* paymentRule=new wxStaticText(page,wxID_ANY,"Boarding is allowed after demo payment is marked received or manually verified. No payment provider is contacted.");paymentRule->SetForegroundColour(kMuted);layout->Add(paymentRule,0,wxLEFT|wxRIGHT|wxBOTTOM,8);
     wxBoxSizer* inner{};auto* card=MakeCard(page,"Shared reservation manifest",inner);
     auto* table=MakeTable(card,{"Reservation","Student ID","Student Name","Seat","Method","Reference","Payment Status","Boarding"},{100,125,145,60,90,145,135,95});
@@ -568,13 +737,12 @@ wxWindow* MainFrame::BuildManifestPage() {
     const std::string driverName=driver.name;
     const std::string driverId=driver.id;
     auto getScheduleIndex=[this,driverName,driverId,tripChoice](){int visible=0;for(size_t i=0;i<m_schedules.size();++i)if(IsAssignedToDriver(m_schedules[i],driverId,driverName)){if(visible++==tripChoice->GetSelection())return static_cast<int>(i);}return -1;};
-    auto populate=[this,table,empty,search,getScheduleIndex](){table->DeleteAllItems();const int scheduleIndex=getScheduleIndex();int count=0;const wxString query=search->GetValue();for(size_t i=0;i<m_reservations.size();++i){const auto& reservation=m_reservations[i];if(!IsActiveReservation(reservation)||reservation.scheduleIndex!=scheduleIndex)continue;if(!Includes(reservation.id,query)&&!Includes(reservation.studentId,query)&&!Includes(reservation.passenger,query)&&!Includes(reservation.seat,query)&&!Includes(reservation.paymentReference,query))continue;AddRow(table,static_cast<long>(i),{W(reservation.id),W(reservation.studentId),W(reservation.passenger),W(reservation.seat),W(reservation.paymentMethod),W(reservation.paymentReference.empty()?"--":reservation.paymentReference),W(reservation.paymentStatus),W(reservation.boardingStatus)});++count;}empty->Show(count==0);};
-    populate();tripChoice->Bind(wxEVT_CHOICE,[this,populate,getScheduleIndex](wxCommandEvent&){m_selectedSchedule=getScheduleIndex();populate();});search->Bind(wxEVT_TEXT,[populate](wxCommandEvent&){populate();});refresh->Bind(wxEVT_BUTTON,[populate](wxCommandEvent&){populate();});
+    auto populate=[this,table,empty,search,paymentFilter,boardingFilter,getScheduleIndex](){table->DeleteAllItems();const int scheduleIndex=getScheduleIndex();int count=0;const wxString query=search->GetValue();for(size_t i=0;i<m_reservations.size();++i){const auto& reservation=m_reservations[i];if(!IsActiveReservation(reservation)||reservation.scheduleIndex!=scheduleIndex)continue;const int pf=paymentFilter->GetSelection(),bf=boardingFilter->GetSelection();if(pf==1&&IsPaymentCleared(reservation))continue;if(pf==2&&!IsPaymentCleared(reservation))continue;if(pf==3&&reservation.paymentStatus.find("Rejected")!=0)continue;if(bf==1&&reservation.status=="Waitlisted")continue;if(bf==2&&reservation.boardingStatus!="Boarded")continue;if(bf==3&&reservation.status!="Waitlisted")continue;if(bf==1&&reservation.boardingStatus!="Waiting")continue;if(!Includes(reservation.id,query)&&!Includes(reservation.studentId,query)&&!Includes(reservation.passenger,query)&&!Includes(reservation.seat,query)&&!Includes(reservation.paymentReference,query))continue;AddRow(table,static_cast<long>(i),{W(reservation.id),W(reservation.studentId),W(reservation.passenger),W(reservation.seat),W(reservation.paymentMethod),W(reservation.paymentReference.empty()?"--":reservation.paymentReference),W(reservation.paymentStatus),W(reservation.status=="Waitlisted"?"Waitlisted":reservation.boardingStatus)});++count;}empty->Show(count==0);};
+    populate();tripChoice->Bind(wxEVT_CHOICE,[this,populate,getScheduleIndex](wxCommandEvent&){m_selectedSchedule=getScheduleIndex();populate();});search->Bind(wxEVT_TEXT,[populate](wxCommandEvent&){populate();});paymentFilter->Bind(wxEVT_CHOICE,[populate](wxCommandEvent&){populate();});boardingFilter->Bind(wxEVT_CHOICE,[populate](wxCommandEvent&){populate();});refresh->Bind(wxEVT_BUTTON,[populate](wxCommandEvent&){populate();});
     auto* details=new wxStaticText(card,wxID_ANY,"Select a passenger to review reservation details.");details->SetForegroundColour(kMuted);inner->Add(table,1,wxEXPAND|wxBOTTOM,8);inner->Add(empty,0,wxEXPAND|wxBOTTOM,8);inner->Add(details,0,wxEXPAND|wxBOTTOM,8);
     table->Bind(wxEVT_LIST_ITEM_SELECTED,[this,table,details](wxListEvent& event){const auto& r=m_reservations[static_cast<size_t>(table->GetItemData(event.GetIndex()))];details->SetLabel(wxString::Format("%s  |  %s (%s)  |  Seat %s  |  %s: %s  |  Payment: %s  |  Boarding: %s",W(r.id),W(r.passenger),W(r.studentId),W(r.seat),W(r.paymentMethod),W(r.paymentReference.empty()?"--":r.paymentReference),W(r.paymentStatus),W(r.boardingStatus)));});
     auto* boardingActions=new wxBoxSizer(wxHORIZONTAL);auto* checkIn=MakeButton(card,"Mark Selected Passenger Boarded",true);auto* undoCheckIn=MakeButton(card,"Undo Check-in");boardingActions->Add(checkIn,0,wxRIGHT,8);boardingActions->Add(undoCheckIn,0);inner->Add(boardingActions,0,wxALIGN_LEFT);checkIn->Bind(wxEVT_BUTTON,[this,table](wxCommandEvent&){long row=table->GetNextItem(-1,wxLIST_NEXT_ALL,wxLIST_STATE_SELECTED);if(row<0){wxMessageBox("Select a passenger first.","Passenger required",wxOK|wxICON_INFORMATION,this);return;}SetBoardingStatus(static_cast<long>(table->GetItemData(row)),true);});undoCheckIn->Bind(wxEVT_BUTTON,[this,table](wxCommandEvent&){long row=table->GetNextItem(-1,wxLIST_NEXT_ALL,wxLIST_STATE_SELECTED);if(row<0){wxMessageBox("Select a passenger first.","Passenger required",wxOK|wxICON_INFORMATION,this);return;}SetBoardingStatus(static_cast<long>(table->GetItemData(row)),false);});
     layout->Add(card,1,wxEXPAND|wxALL,10);
-    // TODO [Robby Ruth Abaquin]: Extend manifest filtering and details; keep this view connected to shared reservations.
     // TODO [Cleoh Amor B. Sarmiento]: Integrate Quick Sort for seat/status ordering and Binary Search only over sorted lookup data.
     return page;
 }
@@ -589,25 +757,24 @@ wxWindow* MainFrame::BuildTripHistoryPage() {
     if(m_selectedDriver<0||m_selectedDriver>=static_cast<int>(m_drivers.size())) return page;
     const auto& driver=m_drivers[static_cast<size_t>(m_selectedDriver)];
     wxBoxSizer* inner{};auto* card=MakeCard(page,"Completed trips",inner);
-    auto* table=MakeTable(card,{"Trip ID","Route","Departure","Capacity","Status"},{100,180,120,90,120});int count=0;
-    for(size_t i=0;i<m_schedules.size();++i){const auto& trip=m_schedules[i];if(!IsAssignedToDriver(trip,driver.id,driver.name)||trip.status!="Completed")continue;AddRow(table,static_cast<long>(i),{W(trip.id),W(trip.routeId),W(trip.departure),W(std::to_string(trip.capacity)),W(trip.status)});++count;}
+    auto* table=MakeTable(card,{"Trip ID","Route","Departure","Capacity","Boarded","Status"},{100,180,140,90,90,120});int count=0;
+    for(size_t i=0;i<m_schedules.size();++i){const auto& trip=m_schedules[i];if(!IsAssignedToDriver(trip,driver.id,driver.name)||trip.status!="Completed")continue;const auto route=std::find_if(m_routes.begin(),m_routes.end(),[&](const RouteRecord& r){return r.id==trip.routeId;});int boarded=0;for(const auto& reservation:m_reservations)if(HasAllocatedSeats(reservation)&&reservation.scheduleIndex==static_cast<int>(i)&&reservation.boardingStatus=="Boarded")++boarded;AddRow(table,static_cast<long>(i),{W(trip.id),route==m_routes.end()?W(trip.routeId):W(route->name),W(trip.departure),W(std::to_string(trip.capacity)),W(std::to_string(boarded)),W(trip.status)});++count;}
     if(count==0)inner->Add(new wxStaticText(card,wxID_ANY,"No completed trips are recorded for this driver."),0,wxEXPAND|wxBOTTOM,8);
     inner->Add(table,1,wxEXPAND);layout->Add(card,1,wxEXPAND|wxALL,10);
     return page;
 }
 
 wxWindow* MainFrame::BuildDigitalPassPage() {
-    auto* page=StartPage("My Digital Pass","Reservation details for boarding. This screen does not generate or verify a QR code.");
+    auto* page=StartPage("My Digital Pass","Your reservation details for the driver. A scannable pass will appear when this demo has a secure pass service.");
     auto* layout=static_cast<wxBoxSizer*>(page->GetSizer());
     auto* select=new wxChoice(page,wxID_ANY);std::vector<size_t> own;
     for(size_t i=0;i<m_reservations.size();++i){const auto& reservation=m_reservations[i];if(reservation.studentId!=m_currentUserId||!IsActiveReservation(reservation))continue;own.push_back(i);select->Append(W(reservation.id+"  |  "+reservation.route+"  |  "+reservation.departure));if(reservation.id==m_selectedReservationId)select->SetSelection(static_cast<int>(own.size()-1));}
     if(select->GetCount()>0&&select->GetSelection()==wxNOT_FOUND)select->SetSelection(0);
     layout->Add(select,0,wxALL,10);wxBoxSizer* inner{};auto* card=MakeCard(page,"TaraMapuan Digital Shuttle Pass",inner);
     auto* details=new wxStaticText(card,wxID_ANY,"No active reservation is available.");details->SetFont(wxFontInfo(12));inner->Add(details,0,wxEXPAND|wxBOTTOM,12);
-    auto* qr=new wxStaticText(card,wxID_ANY,"QR CODE PLACEHOLDER\nNo QR has been generated or verified.");qr->SetForegroundColour(kMuted);qr->SetBackgroundColour(wxColour(244,246,249));qr->SetMinSize(wxSize(280,100));inner->Add(qr,0,wxALIGN_CENTER|wxALL,12);layout->Add(card,0,wxEXPAND|wxALL,10);
-    auto update=[this,select,details,qr,own](){if(select->GetSelection()<0||select->GetSelection()>=static_cast<int>(own.size())){details->SetLabel("No active reservation is available.");return;}const auto& reservation=m_reservations[own[static_cast<size_t>(select->GetSelection())]];m_selectedReservationId=reservation.id;std::string pickup="Unknown";if(reservation.scheduleIndex>=0&&reservation.scheduleIndex<static_cast<int>(m_schedules.size())){const auto& trip=m_schedules[static_cast<size_t>(reservation.scheduleIndex)];const auto route=std::find_if(m_routes.begin(),m_routes.end(),[&](const RouteRecord& item){return item.id==trip.routeId;});if(route!=m_routes.end())pickup=route->pickup;}details->SetLabel(wxString::Format("Reservation: %s\nStudent ID: %s\nRoute: %s\nPickup: %s\nDeparture: %s\nSeat: %s\nPayment: %s (%s)\nBoarding: %s",W(reservation.id),W(reservation.studentId),W(reservation.route),W(pickup),W(reservation.departure),W(reservation.seat),W(reservation.paymentMethod),W(reservation.paymentStatus),W(reservation.boardingStatus)));qr->SetLabel("QR CODE PLACEHOLDER\nNo QR has been generated or verified.");};
+    auto* passState=new wxStaticText(card,wxID_ANY,"PASS STATUS\nSelect a reservation");passState->SetFont(wxFontInfo(13).Bold());passState->SetForegroundColour(kBlue);passState->SetBackgroundColour(wxColour(239,244,250));passState->SetMinSize(wxSize(280,90));inner->Add(passState,0,wxALIGN_LEFT|wxALL,8);layout->Add(card,0,wxEXPAND|wxALL,10);
+    auto update=[this,select,details,passState,own](){if(select->GetSelection()<0||select->GetSelection()>=static_cast<int>(own.size())){details->SetLabel("No active reservation is available.");passState->SetLabel("PASS STATUS\nNo reservation selected");return;}const auto& reservation=m_reservations[own[static_cast<size_t>(select->GetSelection())]];m_selectedReservationId=reservation.id;std::string pickup="Unknown";if(reservation.scheduleIndex>=0&&reservation.scheduleIndex<static_cast<int>(m_schedules.size())){const auto& trip=m_schedules[static_cast<size_t>(reservation.scheduleIndex)];const auto route=std::find_if(m_routes.begin(),m_routes.end(),[&](const RouteRecord& item){return item.id==trip.routeId;});if(route!=m_routes.end())pickup=route->pickup;}details->SetLabel(wxString::Format("Reservation: %s\nStudent ID: %s\nRoute: %s\nPickup: %s\nDeparture: %s\nSeat: %s\nPayment: %s (%s)\nBoarding: %s",W(reservation.id),W(reservation.studentId),W(reservation.route),W(pickup),W(reservation.departure),W(reservation.status=="Waitlisted"?"Not assigned":reservation.seat),W(reservation.paymentMethod),W(reservation.paymentStatus),W(reservation.boardingStatus)));passState->SetLabel(reservation.status=="Waitlisted"?"WAITLISTED\nA seat has not been assigned yet.":"RESERVATION CONFIRMED\nShow these details to your shuttle driver.\nQR pass: unavailable in demo");};
     select->Bind(wxEVT_CHOICE,[update](wxCommandEvent&){update();});update();
-    // TODO [Justin Axcel C. Magpily]: Improve digital-pass layout and QR placeholder handling.
     return page;
 }
 wxWindow* MainFrame::BuildMonitoringPage(){auto*page=StartPage("Shuttle monitoring","Simulated fleet status only. There is no GPS receiver or live location feed.");auto*layout=static_cast<wxBoxSizer*>(page->GetSizer());int seats=0;for(const auto&s:m_schedules)seats+=s.availableSeats;auto*metrics=new wxGridSizer(1,3,10,10);metrics->Add(MetricCard(page,"SHUTTLES IN SAMPLE",W(std::to_string(m_schedules.size())),"Scheduled vehicles",kBlue),1,wxEXPAND);metrics->Add(MetricCard(page,"SEATS AVAILABLE",W(std::to_string(seats)),"Across all departures",kGreen),1,wxEXPAND);metrics->Add(MetricCard(page,"LOCATION DATA","MOCK","Not live tracking",kAmber),1,wxEXPAND);layout->Add(metrics,0,wxEXPAND|wxALL,10);wxBoxSizer*inner{};auto*card=MakeCard(page,"Fleet status  |  Simulated",inner);auto*table=MakeTable(card,{"Shuttle ID","Assigned route","Driver","Current status","Occupancy","Last update"},{95,160,140,120,90,140});for(size_t i=0;i<m_schedules.size();++i){const auto&s=m_schedules[i];wxString status=W(s.status);if(s.availableSeats==0)status="Full";AddRow(table,static_cast<long>(i),{W(s.shuttle),W(s.routeId),W(s.driver),status,wxString::Format("%d / %d",s.capacity-s.availableSeats,s.capacity),"Sample snapshot"});}inner->Add(table,1,wxEXPAND);layout->Add(card,1,wxEXPAND|wxALL,10);
@@ -619,14 +786,14 @@ wxWindow* MainFrame::BuildPaymentsPage() {
     const bool student=m_userRole==UserRole::Student;
     auto* page=StartPage(student?"Payment Details":"Payment Verification",student?"Review your payment method, submitted reference, and current status.":"Manual demo review only. A reference number is not proof of payment.");
     auto* layout=static_cast<wxBoxSizer*>(page->GetSizer());
-    auto* bar=new wxBoxSizer(wxHORIZONTAL);auto* search=new wxTextCtrl(page,wxID_ANY);search->SetHint("Search reservation, student, or reference");bar->Add(search,1,wxRIGHT,8);
+    auto* bar=new wxBoxSizer(wxHORIZONTAL);auto* search=new wxTextCtrl(page,wxID_ANY);search->SetHint("Search reservation, student, or reference");auto* methodFilter=new wxChoice(page,wxID_ANY);for(const char* value:{"Any method","Cash","Online"})methodFilter->Append(value);methodFilter->SetSelection(0);auto* statusFilter=new wxChoice(page,wxID_ANY);for(const char* value:{"Any status","Payment due","Paid / verified","Rejected","Waitlisted"})statusFilter->Append(value);statusFilter->SetSelection(0);bar->Add(search,1,wxRIGHT,8);bar->Add(methodFilter,0,wxRIGHT,6);bar->Add(statusFilter,0);
     wxBoxSizer* inner{};auto* card=MakeCard(page,student?"My payment records":"Assigned-trip payment queue",inner);
     auto* table=MakeTable(card,{"Reservation","Student ID","Passenger","Method","Reference","Payment Status","Boarding"},{100,125,140,90,150,145,95});
-    auto populate=[this,table,search,student](){table->DeleteAllItems();const wxString query=search->GetValue();for(size_t i=0;i<m_reservations.size();++i){const auto& r=m_reservations[i];if(!IsActiveReservation(r))continue;if(student){if(r.studentId!=m_currentUserId)continue;}else{if(r.scheduleIndex<0||r.scheduleIndex>=static_cast<int>(m_schedules.size())||m_selectedDriver<0||m_selectedDriver>=static_cast<int>(m_drivers.size())||!IsAssignedToDriver(m_schedules[static_cast<size_t>(r.scheduleIndex)],m_drivers[static_cast<size_t>(m_selectedDriver)].id,m_drivers[static_cast<size_t>(m_selectedDriver)].name))continue;}if(!Includes(r.id,query)&&!Includes(r.studentId,query)&&!Includes(r.passenger,query)&&!Includes(r.paymentReference,query))continue;AddRow(table,static_cast<long>(i),{W(r.id),W(r.studentId),W(r.passenger),W(r.paymentMethod),W(r.paymentReference.empty()?"--":r.paymentReference),W(r.paymentStatus),W(r.boardingStatus)});}};
-    populate();search->Bind(wxEVT_TEXT,[populate](wxCommandEvent&){populate();});inner->Add(table,1,wxEXPAND);layout->Add(card,1,wxEXPAND|wxALL,10);
+    auto populate=[this,table,search,methodFilter,statusFilter,student](){table->DeleteAllItems();const wxString query=search->GetValue();for(size_t i=0;i<m_reservations.size();++i){const auto& r=m_reservations[i];if(!IsActiveReservation(r))continue;if(student){if(r.studentId!=m_currentUserId)continue;}else{if(r.scheduleIndex<0||r.scheduleIndex>=static_cast<int>(m_schedules.size())||m_selectedDriver<0||m_selectedDriver>=static_cast<int>(m_drivers.size())||!IsAssignedToDriver(m_schedules[static_cast<size_t>(r.scheduleIndex)],m_drivers[static_cast<size_t>(m_selectedDriver)].id,m_drivers[static_cast<size_t>(m_selectedDriver)].name))continue;}const int mf=methodFilter->GetSelection(),sf=statusFilter->GetSelection();if(mf==1&&r.paymentMethod!="Cash")continue;if(mf==2&&r.paymentMethod=="Cash")continue;if(sf==1&&(IsPaymentCleared(r)||r.status=="Waitlisted"))continue;if(sf==2&&!IsPaymentCleared(r))continue;if(sf==3&&r.paymentStatus.find("Rejected")!=0)continue;if(sf==4&&r.status!="Waitlisted")continue;if(!Includes(r.id,query)&&!Includes(r.studentId,query)&&!Includes(r.passenger,query)&&!Includes(r.paymentReference,query))continue;AddRow(table,static_cast<long>(i),{W(r.id),W(r.studentId),W(r.passenger),W(r.paymentMethod),W(r.paymentReference.empty()?"--":r.paymentReference),W(r.status=="Waitlisted"?"Not due (waitlisted)":r.paymentStatus),W(r.status=="Waitlisted"?"Waitlisted":r.boardingStatus)});}};
+    populate();search->Bind(wxEVT_TEXT,[populate](wxCommandEvent&){populate();});methodFilter->Bind(wxEVT_CHOICE,[populate](wxCommandEvent&){populate();});statusFilter->Bind(wxEVT_CHOICE,[populate](wxCommandEvent&){populate();});inner->Add(table,1,wxEXPAND);layout->Add(card,1,wxEXPAND|wxALL,10);
     if(!student){auto* actions=new wxBoxSizer(wxHORIZONTAL);auto* accept=MakeButton(page,"Mark Received / Verified",true);auto* reject=MakeButton(page,"Reject Online Reference");actions->Add(accept,0,wxRIGHT,8);actions->Add(reject,0);layout->Add(actions,0,wxLEFT|wxRIGHT|wxBOTTOM,10);accept->Bind(wxEVT_BUTTON,[this,table](wxCommandEvent&){long row=table->GetNextItem(-1,wxLIST_NEXT_ALL,wxLIST_STATE_SELECTED);if(row<0){wxMessageBox("Select a payment record first.","Payment required",wxOK|wxICON_INFORMATION,this);return;}SetPaymentStatus(static_cast<long>(table->GetItemData(row)),true);});reject->Bind(wxEVT_BUTTON,[this,table](wxCommandEvent&){long row=table->GetNextItem(-1,wxLIST_NEXT_ALL,wxLIST_STATE_SELECTED);if(row<0){wxMessageBox("Select a payment record first.","Payment required",wxOK|wxICON_INFORMATION,this);return;}SetPaymentStatus(static_cast<long>(table->GetItemData(row)),false);});}
-    // TODO [Robby Ruth Abaquin]: Continue refining payment queue filters and audit details; manual decisions remain demo-only.
     // TODO [Robby Ruth Abaquin]: Add authorized payment-provider verification after a real backend is available.
+    if(!student){wxBoxSizer* auditSizer{};auto* audit=MakeCard(page,"Recent demo review activity",auditSizer);if(m_paymentAudit.empty()){auto* note=new wxStaticText(audit,wxID_ANY,"No manual payment decisions have been recorded this session.");note->SetForegroundColour(kMuted);auditSizer->Add(note,0,wxEXPAND);}else{const size_t first=m_paymentAudit.size()>8?m_paymentAudit.size()-8:0;for(size_t i=m_paymentAudit.size();i>first;--i)auditSizer->Add(new wxStaticText(audit,wxID_ANY,W(m_paymentAudit[i-1])),0,wxBOTTOM,4);}layout->Add(audit,0,wxEXPAND|wxLEFT|wxRIGHT|wxBOTTOM,10);}
     return page;
 }
 
@@ -637,14 +804,19 @@ void MainFrame::SetPaymentStatus(long rowIndex, bool accepted) {
     auto& reservation=m_reservations[static_cast<size_t>(rowIndex)];
     if(m_userRole!=UserRole::Driver){wxMessageBox("Only a signed-in driver can review payments.","Access unavailable",wxOK|wxICON_WARNING,this);return;}
     if(!IsActiveReservation(reservation)){wxMessageBox("Cancelled reservations cannot be verified.","Payment unavailable",wxOK|wxICON_WARNING,this);return;}
+    if(reservation.status=="Waitlisted"){wxMessageBox("Payment is not due until a seat is offered.","Payment unavailable",wxOK|wxICON_INFORMATION,this);return;}
+    if(m_selectedDriver<0||m_selectedDriver>=static_cast<int>(m_drivers.size()))return;
     if(reservation.scheduleIndex<0||reservation.scheduleIndex>=static_cast<int>(m_schedules.size())||!IsAssignedToDriver(m_schedules[static_cast<size_t>(reservation.scheduleIndex)],m_drivers[static_cast<size_t>(m_selectedDriver)].id,m_drivers[static_cast<size_t>(m_selectedDriver)].name)){wxMessageBox("This reservation is not assigned to your trips.","Payment unavailable",wxOK|wxICON_WARNING,this);return;}
     if(IsPaymentCleared(reservation)){wxMessageBox("This payment is already marked received or verified.","Payment status",wxOK|wxICON_INFORMATION,this);return;}
     if(accepted&&reservation.paymentMethod!="Cash"&&reservation.paymentReference.empty()){wxMessageBox("An online payment reference is required before manual review.","Reference required",wxOK|wxICON_WARNING,this);return;}
     if(!accepted&&(reservation.paymentMethod=="Cash"||reservation.paymentReference.empty())){wxMessageBox("Only an online payment with a submitted reference can be rejected.","Reference required",wxOK|wxICON_WARNING,this);return;}
     const wxString action=accepted?(reservation.paymentMethod=="Cash"?"Mark this cash payment as received?":"Manually verify the submitted reference? This does not contact the payment provider."):"Reject this submitted online payment reference?";
     if(wxMessageBox(action,"Confirm demo payment action",wxYES_NO|wxNO_DEFAULT|wxICON_QUESTION,this)!=wxYES)return;
+    const std::string previous=reservation.paymentStatus;
     if(accepted)reservation.paymentStatus=reservation.paymentMethod=="Cash"?"Paid (demo)":"Verified (demo)";
     else reservation.paymentStatus="Rejected (demo)";
+    const wxDateTime now=wxDateTime::Now();m_paymentAudit.push_back(Utf8(now.FormatISOCombined(' '))+" | "+reservation.id+" | "+reservation.studentId+" | "+previous+" -> "+reservation.paymentStatus);
+    if(m_paymentAudit.size()>1000)m_paymentAudit.erase(m_paymentAudit.begin(),m_paymentAudit.begin()+static_cast<std::ptrdiff_t>(m_paymentAudit.size()-1000));
     SaveReservations();SetStatusText("Payment status updated in the shared local reservation record.");
     wxMessageBox(accepted?"The demo payment status was updated.":"The online reference was marked rejected in the demo record.","Payment status",wxOK|wxICON_INFORMATION,this);
     RefreshCurrentPage();
@@ -655,6 +827,7 @@ void MainFrame::SetBoardingStatus(long rowIndex, bool boarded) {
     auto& reservation=m_reservations[static_cast<size_t>(rowIndex)];
     if(m_userRole!=UserRole::Driver||m_selectedDriver<0||m_selectedDriver>=static_cast<int>(m_drivers.size())){wxMessageBox("Only a signed-in driver can check in passengers.","Access unavailable",wxOK|wxICON_WARNING,this);return;}
     if(!IsActiveReservation(reservation)){wxMessageBox("Cancelled reservations cannot be checked in.","Boarding unavailable",wxOK|wxICON_WARNING,this);return;}
+    if(reservation.status=="Waitlisted"){wxMessageBox("A boarding pass is unavailable until a seat is offered.","Boarding unavailable",wxOK|wxICON_INFORMATION,this);return;}
     if(reservation.scheduleIndex<0||reservation.scheduleIndex>=static_cast<int>(m_schedules.size())||!IsAssignedToDriver(m_schedules[static_cast<size_t>(reservation.scheduleIndex)],m_drivers[static_cast<size_t>(m_selectedDriver)].id,m_drivers[static_cast<size_t>(m_selectedDriver)].name)){wxMessageBox("This passenger is not on your assigned trips.","Boarding unavailable",wxOK|wxICON_WARNING,this);return;}
     if(boarded&&reservation.boardingStatus=="Boarded"){wxMessageBox("This passenger has already been checked in.","Already boarded",wxOK|wxICON_INFORMATION,this);return;}
     if(!boarded&&reservation.scheduleIndex>=0&&reservation.scheduleIndex<static_cast<int>(m_schedules.size())&&m_schedules[static_cast<size_t>(reservation.scheduleIndex)].status=="Completed"){wxMessageBox("Check-in cannot be undone after the trip is completed.","Boarding unavailable",wxOK|wxICON_WARNING,this);return;}
@@ -669,8 +842,8 @@ void MainFrame::UpdateTripStatus(long scheduleIndex, bool completed) {
     if(m_userRole!=UserRole::Driver||m_selectedDriver<0||m_selectedDriver>=static_cast<int>(m_drivers.size())||scheduleIndex<0||scheduleIndex>=static_cast<long>(m_schedules.size()))return;
     auto& trip=m_schedules[static_cast<size_t>(scheduleIndex)];
     if(!IsAssignedToDriver(trip,m_drivers[static_cast<size_t>(m_selectedDriver)].id,m_drivers[static_cast<size_t>(m_selectedDriver)].name)){wxMessageBox("You can only update trips assigned to your driver account.","Trip unavailable",wxOK|wxICON_WARNING,this);return;}
-    if(completed){if(trip.status!="On Route"){wxMessageBox("A trip must be marked departed before it can be completed.","Trip status",wxOK|wxICON_WARNING,this);return;}for(const auto& reservation:m_reservations)if(IsActiveReservation(reservation)&&reservation.scheduleIndex==scheduleIndex&&reservation.boardingStatus!="Boarded"){wxMessageBox("All active passengers must be checked in before completing this trip.","Passengers remain",wxOK|wxICON_WARNING,this);return;}}
-    else if(trip.status=="On Route"||trip.status=="Completed"){wxMessageBox("This trip is already departed or completed.","Trip status",wxOK|wxICON_INFORMATION,this);return;}
+    if(completed){if(trip.status!="On Route"){wxMessageBox("A trip must be marked departed before it can be completed.","Trip status",wxOK|wxICON_WARNING,this);return;}for(const auto& reservation:m_reservations)if(HasAllocatedSeats(reservation)&&reservation.scheduleIndex==scheduleIndex&&reservation.boardingStatus!="Boarded"){wxMessageBox("All seated active passengers must be checked in before completing this trip.","Passengers remain",wxOK|wxICON_WARNING,this);return;}}
+    else if(trip.status!="Scheduled"){wxMessageBox("Only a scheduled trip can be marked departed.","Trip status",wxOK|wxICON_INFORMATION,this);return;}
     if(wxMessageBox(completed?"Confirm that this trip is complete?":"Confirm that this trip has departed?","Confirm trip status",wxYES_NO|wxNO_DEFAULT|wxICON_QUESTION,this)!=wxYES)return;
     trip.status=completed?"Completed":"On Route";SetStatusText("Trip status updated for the assigned demo trip.");RefreshCurrentPage();
 }

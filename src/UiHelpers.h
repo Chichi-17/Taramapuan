@@ -145,6 +145,24 @@ bool IsActiveReservation(const ReservationRecord& reservation) {
     return reservation.status != "Cancelled";
 }
 
+bool HasAllocatedSeats(const ReservationRecord& reservation) {
+    return IsActiveReservation(reservation) && reservation.status != "Waitlisted" &&
+           reservation.seat != "--";
+}
+
+bool IsPastDepartureCutoff(const wxString& departure, int minutes) {
+    const wxString dateText = departure.BeforeFirst(' ').Strip();
+    const wxString timeText = departure.AfterFirst(' ').Strip();
+    if (dateText.empty() || timeText.empty()) return false;
+    wxDateTime date;
+    wxDateTime time;
+    if (!date.ParseISODate(dateText) || !time.ParseTime(timeText)) return false;
+    date.SetHour(time.GetHour());
+    date.SetMinute(time.GetMinute());
+    date.SetSecond(0);
+    return wxDateTime::Now() >= date.Subtract(wxTimeSpan(0, minutes, 0));
+}
+
 bool IsPaymentCleared(const ReservationRecord& reservation) {
     return reservation.paymentStatus == "Paid (demo)" ||
            reservation.paymentStatus == "Verified (demo)" ||
@@ -164,7 +182,7 @@ std::string AllocateSeatRange(const std::vector<ReservationRecord>& reservations
                               int scheduleIndex, int seatCount, int capacity) {
     std::vector<bool> occupied(static_cast<size_t>(capacity + 1), false);
     for (const auto& reservation : reservations) {
-        if (!IsActiveReservation(reservation) || reservation.scheduleIndex != scheduleIndex) continue;
+        if (!HasAllocatedSeats(reservation) || reservation.scheduleIndex != scheduleIndex) continue;
         std::vector<int> numbers;
         for (size_t i = 0; i < reservation.seat.size();) {
             if (!std::isdigit(static_cast<unsigned char>(reservation.seat[i]))) { ++i; continue; }

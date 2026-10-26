@@ -20,7 +20,7 @@ The student and driver portals use the same in-memory reservation records. Reser
 Configure and build using the existing Visual Studio x64 toolchain:
 
 ```powershell
-cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="C:/Users/acer/Downloads/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DwxWidgets_DIR="C:/Users/acer/Downloads/vcpkg/installed/x64-windows/share/wxwidgets"
+cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="C:/Users/acer/Downloads/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DNanoSVG_DIR="C:/Users/acer/Downloads/vcpkg/installed/x64-windows/share/nanosvg" -DwxWidgets_DIR="C:/Users/acer/Downloads/vcpkg/installed/x64-windows/share/wxwidgets"
 cmake --build build --config Release
 ```
 
@@ -33,7 +33,8 @@ Run the generated application with:
 ## Source layout
 
 - `src/main.cpp` — wxWidgets application entry point
-- `src/MainFrame.cpp` — landing, login, navigation, student and driver pages, and demo workflows
+- `src/LandingPage.cpp` � branded landing page with vector icons and responsive sections
+- `src/MainFrame.cpp` � login, navigation, student and driver pages, and demo workflows
 - `src/ReservationDialog.cpp` — validated trip and payment-reference form
 - `include/MainFrame.h` — frame, page, role, and event declarations
 - `include/ReservationDialog.h` — reservation draft and dialog declarations

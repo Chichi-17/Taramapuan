@@ -14,6 +14,7 @@ struct ReservationDraft {
     int routeIndex{-1};
     int scheduleIndex{-1};
     int seatCount{1};
+    bool joinWaitlist{false};
 };
 
 class ReservationDialog final : public wxDialog {
@@ -41,5 +42,6 @@ private:
     wxSpinCtrl* m_seats{};
     wxChoice* m_payment{};
     wxTextCtrl* m_paymentReference{};
+    wxCheckBox* m_joinWaitlist{};
     wxStaticText* m_summary{};
 };

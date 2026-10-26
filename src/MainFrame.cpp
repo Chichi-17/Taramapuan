@@ -20,7 +20,7 @@ MainFrame::MainFrame()
     : wxFrame(nullptr, wxID_ANY, "TaraMapuan | Campus Shuttle System",
               wxDefaultPosition, wxSize(1280, 800), wxDEFAULT_FRAME_STYLE) {
     LoadReservations();
-    SetMinSize(wxSize(1050, 650));
+    SetMinSize(wxSize(760, 560));
     SetBackgroundColour(kCanvas);
     CreateStatusBar();
     SetStatusText("Prototype mode  |  All records and actions use local sample data");
@@ -57,24 +57,24 @@ MainFrame::MainFrame()
     auto* main = new wxPanel(this, wxID_ANY);
     main->SetBackgroundColour(kCanvas);
     auto* mainSizer = new wxBoxSizer(wxVERTICAL);
-    auto* topbar = new wxPanel(main, wxID_ANY);
-    topbar->SetBackgroundColour(*wxWHITE);
+    m_topbar = new wxPanel(main, wxID_ANY);
+    m_topbar->SetBackgroundColour(*wxWHITE);
     auto* topSizer = new wxBoxSizer(wxHORIZONTAL);
     auto* titleBox = new wxBoxSizer(wxVERTICAL);
-    m_pageTitle = new wxStaticText(topbar, wxID_ANY, "Dashboard");
+    m_pageTitle = new wxStaticText(m_topbar, wxID_ANY, "Dashboard");
     m_pageTitle->SetFont(wxFontInfo(16).Bold());
     m_pageTitle->SetForegroundColour(kNavy);
-    m_pageSubtitle = new wxStaticText(topbar, wxID_ANY, "Campus transportation overview");
+    m_pageSubtitle = new wxStaticText(m_topbar, wxID_ANY, "Campus transportation overview");
     m_pageSubtitle->SetForegroundColour(kMuted);
     titleBox->Add(m_pageTitle);
     titleBox->Add(m_pageSubtitle, 0, wxTOP, 2);
     topSizer->Add(titleBox, 1, wxALIGN_CENTER_VERTICAL | wxLEFT | wxTOP | wxBOTTOM, 16);
-    auto* sampleTag = new wxStaticText(topbar, wxID_ANY, "DEMO  |  LOCAL PREVIEW");
+    auto* sampleTag = new wxStaticText(m_topbar, wxID_ANY, "DEMO  |  LOCAL PREVIEW");
     sampleTag->SetForegroundColour(kBlue);
     sampleTag->SetFont(wxFontInfo(8).Bold());
     topSizer->Add(sampleTag, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 20);
-    topbar->SetSizer(topSizer);
-    mainSizer->Add(topbar, 0, wxEXPAND);
+    m_topbar->SetSizer(topSizer);
+    mainSizer->Add(m_topbar, 0, wxEXPAND);
 
     m_pageHost = new wxPanel(main, wxID_ANY);
     m_pageHost->SetBackgroundColour(kCanvas);
@@ -120,7 +120,7 @@ void MainFrame::LoadReservations() {
     config->Read("Reservations/Sequence", &m_reservationSequence, 24100);
     for (auto& schedule : m_schedules) schedule.availableSeats = schedule.capacity;
     for (const auto& r : m_reservations) {
-        if (!IsActiveReservation(r) || r.scheduleIndex < 0 || r.scheduleIndex >= static_cast<int>(m_schedules.size())) continue;
+        if (!HasAllocatedSeats(r) || r.scheduleIndex < 0 || r.scheduleIndex >= static_cast<int>(m_schedules.size())) continue;
         auto& schedule = m_schedules[static_cast<size_t>(r.scheduleIndex)];
         schedule.availableSeats = std::max(0, schedule.availableSeats - r.seatCount);
     }
@@ -175,10 +175,17 @@ wxScrolledWindow* MainFrame::StartPage(const wxString& title, const wxString& su
 
 void MainFrame::ShowPage(Page page) {
     m_currentPage = page;
+    const unsigned long revision = ++m_pageRevision;
+    CallAfter([this, page, revision] {
+        if (revision == m_pageRevision) RenderPage(page);
+    });
+}
+
+void MainFrame::RenderPage(Page page) {
     const std::vector<std::pair<Page, wxString>> titles = {
         {Page::Landing,"TaraMapuan Home"},{Page::RoleSelect,"Choose your portal"},
         {Page::Login,"Demo login"},{Page::Dashboard,"Dashboard"},
-        {Page::StudentDashboard,"Student Dashboard"},{Page::Reserve,"Reserve a Shuttle"},
+        {Page::StudentDashboard,"Student Dashboard"},{Page::Profile,"My Profile"},{Page::Reserve,"Reserve a Shuttle"},
         {Page::Reservations,"My Reservations"},{Page::Routes,"Shuttle Routes"},
         {Page::Schedules,"Shuttle Schedules"},{Page::Passengers,"Passenger Management"},
         {Page::Drivers,"Driver Management"},{Page::DriverDashboard,"Driver Dashboard"},
@@ -190,6 +197,8 @@ void MainFrame::ShowPage(Page page) {
     wxString title = "Dashboard";
     for (const auto& item : titles) if (item.first == page) { title = item.second; break; }
     m_pageTitle->SetLabel(title);
+    m_topbar->Show(page != Page::Landing);
+    if (GetStatusBar()) GetStatusBar()->Show(page != Page::Landing);
     m_pageSubtitle->SetLabel(m_userRole == UserRole::None
         ? "Campus shuttle reservations and trip operations"
         : (m_userRole == UserRole::Student ? "Student portal  |  Local demo data" : "Driver portal  |  Local demo data"));
@@ -223,7 +232,7 @@ void MainFrame::RebuildNavigation() {
     m_navigation.clear();
     std::vector<std::pair<Page, wxString>> pages;
     if (m_userRole == UserRole::Student) {
-        pages = {{Page::StudentDashboard,"Dashboard"},{Page::Schedules,"Shuttle Schedules"},
+        pages = {{Page::StudentDashboard,"Dashboard"},{Page::Profile,"My Profile"},{Page::Schedules,"Shuttle Schedules"},
                  {Page::Reserve,"Reserve a Seat"},{Page::Reservations,"My Reservations"},
                  {Page::DigitalPass,"My Digital Pass"},{Page::Payments,"Payment Details"},
                  {Page::Settings,"Settings"},{Page::Landing,"Logout"}};

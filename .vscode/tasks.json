@@ -10,6 +10,7 @@
         "-G", "Visual Studio 18 2026", "-A", "x64",
         "-DCMAKE_TOOLCHAIN_FILE=C:/Users/acer/Downloads/vcpkg/scripts/buildsystems/vcpkg.cmake",
         "-DVCPKG_TARGET_TRIPLET=x64-windows",
+        "-DNanoSVG_DIR=C:/Users/acer/Downloads/vcpkg/installed/x64-windows/share/nanosvg",
         "-DwxWidgets_DIR=C:/Users/acer/Downloads/vcpkg/installed/x64-windows/share/wxwidgets"
       ],
       "problemMatcher": []

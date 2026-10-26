@@ -59,7 +59,7 @@ inline std::vector<ScheduleRecord> SampleSchedules() {
 
 inline std::vector<ReservationRecord> SampleReservations() {
     return {
-        {"RS-24018", "Alex Reyes", "S-2022-0148", "Library Loop", "8:30 AM", "A4", "Cash", "Pending", "Confirmed", 1, 0, "", "Waiting"},
+        {"RS-24018", "Anton Karunungan", "2025164253", "Library Loop", "8:30 AM", "A4", "Cash", "Pending", "Confirmed", 1, 0, "", "Waiting"},
         {"RS-24021", "Jamie Cruz", "S-2021-0820", "Town Center Line", "9:30 AM", "B2", "GCash", "Awaiting review (demo)", "Pending", 1, 2, "DEMO-GC-24021", "Waiting"},
         {"RS-24025", "Taylor Lim", "S-2023-0221", "Dormitory Express", "9:00 AM", "C1", "Cash", "Paid (demo)", "Confirmed", 1, 1, "", "Waiting"},
         {"RS-24028", "Morgan Santos", "S-2022-0437", "Library Loop", "10:30 AM", "--", "GCash", "Not paid", "Cancelled", 1, 4, "", "Waiting"}
@@ -68,7 +68,7 @@ inline std::vector<ReservationRecord> SampleReservations() {
 
 inline std::vector<PassengerRecord> SamplePassengers() {
     return {
-        {"S-2022-0148", "Alex Reyes", "Computer Science", "555-0101"},
+        {"2025164253", "Anton Karunungan", "Information Technology", "555-0101"},
         {"S-2021-0820", "Jamie Cruz", "Information Technology", "555-0102"},
         {"S-2023-0221", "Taylor Lim", "Engineering", "555-0103"},
         {"S-2022-0437", "Morgan Santos", "Business", "555-0104"},
