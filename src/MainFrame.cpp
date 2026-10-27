@@ -18,7 +18,9 @@
 
 MainFrame::MainFrame()
     : wxFrame(nullptr, wxID_ANY, "TaraMapuan | Campus Shuttle System",
-              wxDefaultPosition, wxSize(1280, 800), wxDEFAULT_FRAME_STYLE) {
+              wxDefaultPosition, wxSize(1280, 800), wxDEFAULT_FRAME_STYLE),
+      m_waitlistTimer(this) {
+    LoadRoutesAndSchedules();
     LoadReservations();
     SetMinSize(wxSize(760, 560));
     SetBackgroundColour(kCanvas);
@@ -84,12 +86,103 @@ MainFrame::MainFrame()
     main->SetSizer(mainSizer);
     root->Add(main, 1, wxEXPAND);
     SetSizer(root);
+    Bind(wxEVT_TIMER, [this](wxTimerEvent&) { ProcessWaitlistCutoffs(); }, m_waitlistTimer.GetId());
+    m_waitlistTimer.Start(15000);
+    ProcessWaitlistCutoffs();
     ShowPage(Page::Landing);
     Centre();
 }
 
+void MainFrame::LoadRoutesAndSchedules() {
+    std::unique_ptr<wxFileConfig> config(ReservationConfig());
+    long count = 0;
+    if (config->Read("Routes/Count", &count) && count >= 0 && count <= 10000) {
+        m_routes.clear();
+        for (long i = 0; i < count; ++i) {
+            const wxString path = wxString::Format("Routes/Record%ld/", i);
+            RouteRecord route;
+            auto readString = [&](const wxString& key, std::string& value) {
+                wxString stored;
+                config->Read(path + key, &stored);
+                value = Utf8(stored);
+            };
+            readString("Id", route.id);
+            readString("Name", route.name);
+            readString("Pickup", route.pickup);
+            readString("Destination", route.destination);
+            readString("Shuttle", route.shuttle);
+            readString("TravelTime", route.travelTime);
+            readString("Status", route.status);
+            m_routes.push_back(std::move(route));
+        }
+    }
+
+    count = 0;
+    if (config->Read("Schedules/Count", &count) && count >= 0 && count <= 10000) {
+        m_schedules.clear();
+        for (long i = 0; i < count; ++i) {
+            const wxString path = wxString::Format("Schedules/Record%ld/", i);
+            ScheduleRecord schedule;
+            auto readString = [&](const wxString& key, std::string& value) {
+                wxString stored;
+                config->Read(path + key, &stored);
+                value = Utf8(stored);
+            };
+            readString("Id", schedule.id);
+            readString("RouteId", schedule.routeId);
+            readString("Departure", schedule.departure);
+            readString("Arrival", schedule.arrival);
+            readString("Driver", schedule.driver);
+            readString("Shuttle", schedule.shuttle);
+            readString("Status", schedule.status);
+            readString("DriverId", schedule.driverId);
+            config->Read(path + "AvailableSeats", &schedule.availableSeats, 0);
+            config->Read(path + "Capacity", &schedule.capacity, 0);
+            m_schedules.push_back(std::move(schedule));
+        }
+    }
+}
+
+void MainFrame::SaveRoutesAndSchedules() const {
+    {
+        std::unique_ptr<wxFileConfig> config(ReservationConfig());
+        config->DeleteGroup("Routes");
+        config->Write("Routes/Count", static_cast<long>(m_routes.size()));
+        for (size_t i = 0; i < m_routes.size(); ++i) {
+            const auto& route = m_routes[i];
+            const wxString path = wxString::Format("Routes/Record%zu/", i);
+            config->Write(path + "Id", W(route.id));
+            config->Write(path + "Name", W(route.name));
+            config->Write(path + "Pickup", W(route.pickup));
+            config->Write(path + "Destination", W(route.destination));
+            config->Write(path + "Shuttle", W(route.shuttle));
+            config->Write(path + "TravelTime", W(route.travelTime));
+            config->Write(path + "Status", W(route.status));
+        }
+        config->DeleteGroup("Schedules");
+        config->Write("Schedules/Count", static_cast<long>(m_schedules.size()));
+        for (size_t i = 0; i < m_schedules.size(); ++i) {
+            const auto& schedule = m_schedules[i];
+            const wxString path = wxString::Format("Schedules/Record%zu/", i);
+            config->Write(path + "Id", W(schedule.id));
+            config->Write(path + "RouteId", W(schedule.routeId));
+            config->Write(path + "Departure", W(schedule.departure));
+            config->Write(path + "Arrival", W(schedule.arrival));
+            config->Write(path + "Driver", W(schedule.driver));
+            config->Write(path + "Shuttle", W(schedule.shuttle));
+            config->Write(path + "Status", W(schedule.status));
+            config->Write(path + "DriverId", W(schedule.driverId));
+            config->Write(path + "AvailableSeats", schedule.availableSeats);
+            config->Write(path + "Capacity", schedule.capacity);
+        }
+        config->Flush();
+    }
+    SaveReservations();
+}
+
 void MainFrame::LoadReservations() {
     // TODO: Replace the local INI demonstration store with a database-backed repository and migrations.
+    m_reservationQueue.clear();
     std::unique_ptr<wxFileConfig> config(ReservationConfig());
     long count = 0;
     if (!config->Read("Reservations/Count", &count) || count < 0 || count > 100000) return;
@@ -115,7 +208,14 @@ void MainFrame::LoadReservations() {
         readString("BoardingStatus", r.boardingStatus);
         config->Read(path + "SeatCount", &r.seatCount, 1);
         config->Read(path + "ScheduleIndex", &r.scheduleIndex, -1);
+        config->Read(path + "WaitlistRequested", &r.waitlistRequested, false);
         m_reservations.push_back(std::move(r));
+    }
+    for (const auto& reservation : m_reservations) {
+        if (reservation.status == "Waitlisted" && reservation.scheduleIndex >= 0 &&
+            reservation.scheduleIndex < static_cast<int>(m_schedules.size())) {
+            m_reservationQueue.enqueue(reservation);
+        }
     }
     config->Read("Reservations/Sequence", &m_reservationSequence, 24100);
     for (auto& schedule : m_schedules) schedule.availableSeats = schedule.capacity;
@@ -151,8 +251,60 @@ void MainFrame::SaveReservations() const {
         config->Write(path + "BoardingStatus", W(r.boardingStatus));
         config->Write(path + "SeatCount", r.seatCount);
         config->Write(path + "ScheduleIndex", r.scheduleIndex);
+        config->Write(path + "WaitlistRequested", r.waitlistRequested);
     }
     config->Flush();
+}
+
+void MainFrame::ProcessWaitlistCutoffs() {
+    bool changed = false;
+    for (auto& reservation : m_reservations) {
+        if (reservation.scheduleIndex < 0 ||
+            reservation.scheduleIndex >= static_cast<int>(m_schedules.size()) ||
+            reservation.status == "Cancelled" ||
+            reservation.status == "Waitlist expired" ||
+            reservation.status == "No-show (walk-in release)" ||
+            reservation.status == "Request expired" ||
+            reservation.boardingStatus == "Boarded" ||
+            !IsPastDepartureCutoff(W(reservation.departure), 10)) {
+            continue;
+        }
+
+        if (reservation.status == "Waitlisted") {
+            reservation.status = "Waitlist expired";
+            reservation.paymentStatus = "Not due - waitlist closed";
+            reservation.boardingStatus = "Waitlist expired";
+            while (!m_reservationQueue.isEmpty(reservation.scheduleIndex, reservation.departure)) {
+                m_reservationQueue.dequeue(reservation.scheduleIndex, reservation.departure);
+            }
+        } else if (reservation.status == "Pending driver approval") {
+            reservation.status = "Request expired";
+            reservation.paymentStatus = "Not due - request expired";
+            reservation.boardingStatus = "Request expired";
+        } else if (HasAllocatedSeats(reservation)) {
+            auto& schedule = m_schedules[static_cast<size_t>(reservation.scheduleIndex)];
+            schedule.availableSeats = std::min(schedule.capacity,
+                schedule.availableSeats + reservation.seatCount);
+            reservation.status = "No-show (walk-in release)";
+            reservation.seat = "--";
+            reservation.boardingStatus = "No-show";
+        } else {
+            continue;
+        }
+        changed = true;
+    }
+
+    for (auto& schedule : m_schedules) {
+        if (schedule.availableSeats > 0 && schedule.status == "Full") {
+            schedule.status = "Available";
+        }
+    }
+
+    if (changed) {
+        SaveReservations();
+        SetStatusText("10-minute check-in cutoff passed; unclaimed seats are open for on-site walk-ins.");
+        RefreshCurrentPage();
+    }
 }
 
 wxScrolledWindow* MainFrame::StartPage(const wxString& title, const wxString& subtitle) {
@@ -270,4 +422,3 @@ void MainFrame::RebuildNavigation() {
     m_navScroll->FitInside();
     m_navScroll->Layout();
 }
-

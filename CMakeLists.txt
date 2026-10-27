@@ -10,6 +10,7 @@ find_package(wxWidgets CONFIG REQUIRED)
 add_executable(TaraShuttle WIN32
     src/main.cpp
     src/MainFrame.cpp
+    src/MainFrameActions.cpp
     src/MainFramePages.cpp
     src/LandingPage.cpp
     src/ReservationDialog.cpp

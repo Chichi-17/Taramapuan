@@ -34,6 +34,7 @@ private:
 
     const std::vector<RouteRecord>& m_routes;
     const std::vector<ScheduleRecord>& m_schedules;
+    std::vector<int> m_routeIndices;
     wxTextCtrl* m_passenger{};
     wxTextCtrl* m_studentId{};
     wxTextCtrl* m_date{};

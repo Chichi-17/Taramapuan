@@ -29,9 +29,14 @@ private:
     void UpdateNavigationStyle();
     void RebuildNavigation();
     void CreateReservation();
+    void LoadRoutesAndSchedules();
+    void SaveRoutesAndSchedules() const;
     void LoadReservations();
     void SaveReservations() const;
+    void ProcessWaitlistCutoffs();
+    void RegisterWalkIn(int scheduleIndex);
     void CancelReservation(long rowIndex);
+    void ReviewReservationRequest(long rowIndex, bool approved);
     void ReviewPayment(long rowIndex);
     void SetPaymentStatus(long rowIndex, bool accepted);
     void SetBoardingStatus(long rowIndex, bool boarded);
@@ -67,6 +72,7 @@ private:
     std::vector<RouteRecord> m_routes{SampleRoutes()};
     std::vector<ScheduleRecord> m_schedules{SampleSchedules()};
     std::vector<ReservationRecord> m_reservations{SampleReservations()};
+    ReservationQueue m_reservationQueue;
     std::vector<PassengerRecord> m_passengers{SamplePassengers()};
     std::vector<DriverRecord> m_drivers{SampleDrivers()};
     std::vector<std::string> m_paymentAudit;
@@ -91,4 +97,5 @@ private:
     bool m_notificationsEnabled{true};
     bool m_compactLayout{false};
     wxString m_departureStatus{"Scheduled"};
+    wxTimer m_waitlistTimer;
 };

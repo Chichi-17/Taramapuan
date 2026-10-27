@@ -1,5 +1,6 @@
 #include "ReservationDialog.h"
 
+#include <algorithm>
 #include <wx/datetime.h>
 
 namespace {
@@ -31,7 +32,7 @@ ReservationDialog::ReservationDialog(wxWindow* parent,
     SetMinSize(wxSize(540, 580));
     auto* root = new wxBoxSizer(wxVERTICAL);
     auto* intro = new wxStaticText(this, wxID_ANY,
-        "Create a local sample reservation. No payment or booking is sent to a service.");
+        "Choose any active driver-published route. Your request must be approved by the driver assigned to the selected departure.");
     intro->Wrap(480);
     root->Add(intro, 0, wxEXPAND | wxALL, 16);
 
@@ -56,9 +57,19 @@ ReservationDialog::ReservationDialog(wxWindow* parent,
     m_payment->Append("GoTyme");
     m_payment->SetSelection(0);
     m_paymentReference = new wxTextCtrl(this, wxID_ANY);
-    for (const auto& route : m_routes)
-        m_route->Append(wxString::FromUTF8(route.id + " - " + route.name));
-    if (!m_routes.empty()) m_route->SetSelection(0);
+    for (size_t i = 0; i < m_routes.size(); ++i) {
+        const auto& route = m_routes[i];
+        const bool hasActiveSchedule = route.status == "Active" &&
+            std::any_of(m_schedules.begin(), m_schedules.end(), [&](const ScheduleRecord& schedule) {
+                return schedule.routeId == route.id && schedule.status != "On Route" &&
+                       schedule.status != "Completed";
+            });
+        if (hasActiveSchedule) {
+            m_routeIndices.push_back(static_cast<int>(i));
+            m_route->Append(wxString::FromUTF8(route.id + " - " + route.name));
+        }
+    }
+    if (m_route->GetCount() > 0) m_route->SetSelection(0);
 
     auto addField = [form](const wxString& label, wxWindow* control) {
         form->Add(new wxStaticText(control->GetParent(), wxID_ANY, label), 0,
@@ -105,11 +116,15 @@ ReservationDialog::ReservationDialog(wxWindow* parent,
 }
 
 void ReservationDialog::UpdateScheduleChoices() {
-    const int routeIndex = m_route->GetSelection();
+    const int routeSelection = m_route->GetSelection();
     m_schedule->Clear();
+    if (routeSelection < 0 || routeSelection >= static_cast<int>(m_routeIndices.size())) {
+        UpdateSummary();
+        return;
+    }
+    const int routeIndex = m_routeIndices[static_cast<size_t>(routeSelection)];
     for (const auto& schedule : m_schedules) {
-        const bool routeMatches = routeIndex >= 0 && routeIndex < static_cast<int>(m_routes.size()) &&
-                                  schedule.routeId == m_routes[static_cast<size_t>(routeIndex)].id;
+        const bool routeMatches = schedule.routeId == m_routes[static_cast<size_t>(routeIndex)].id;
         const bool active = schedule.status != "On Route" && schedule.status != "Completed";
         if (!routeMatches || (m_joinWaitlist->GetValue() ? !active : !IsBookable(schedule)))
             continue;
@@ -122,9 +137,12 @@ void ReservationDialog::UpdateScheduleChoices() {
 }
 
 void ReservationDialog::UpdateSummary() {
-    const int routeIndex = m_route->GetSelection();
+    const int routeSelection = m_route->GetSelection();
+    const int routeIndex = routeSelection >= 0 &&
+        routeSelection < static_cast<int>(m_routeIndices.size())
+        ? m_routeIndices[static_cast<size_t>(routeSelection)] : -1;
     int scheduleIndex = -1;
-    if (routeIndex >= 0) {
+    if (routeIndex >= 0 && routeIndex < static_cast<int>(m_routes.size())) {
         int visibleIndex = 0;
         for (size_t i = 0; i < m_schedules.size(); ++i) {
             const bool active = m_schedules[i].status != "On Route" && m_schedules[i].status != "Completed";
@@ -143,7 +161,7 @@ void ReservationDialog::UpdateSummary() {
     const auto& schedule = m_schedules[static_cast<size_t>(scheduleIndex)];
     const bool waitlisted = m_joinWaitlist->GetValue() && m_seats->GetValue() > schedule.availableSeats;
     m_summary->SetLabel(wxString::Format("%s: %s | %s | %s | %d seat(s) available",
-        waitlisted ? "Waitlist request" : "Reservation summary",
+        waitlisted ? "Waitlist request (driver approval required)" : "Driver approval required",
         wxString::FromUTF8(schedule.routeId), wxString::FromUTF8(schedule.departure),
         wxString::FromUTF8(schedule.shuttle), schedule.availableSeats));
 }
@@ -155,7 +173,9 @@ ReservationDraft ReservationDialog::GetDraft() const {
     draft.travelDate = m_date->GetValue().Strip(wxString::both);
     draft.paymentMethod = m_payment->GetStringSelection();
     draft.paymentReference = m_paymentReference->GetValue().Strip(wxString::both);
-    draft.routeIndex = m_route->GetSelection();
+    const int routeSelection = m_route->GetSelection();
+    draft.routeIndex = routeSelection >= 0 && routeSelection < static_cast<int>(m_routeIndices.size())
+        ? m_routeIndices[static_cast<size_t>(routeSelection)] : -1;
     draft.scheduleIndex = -1;
     const int visibleSelection = m_schedule->GetSelection();
     int visibleIndex = 0;
@@ -171,8 +191,7 @@ ReservationDraft ReservationDialog::GetDraft() const {
         }
     }
     draft.seatCount = m_seats->GetValue();
-    draft.joinWaitlist = m_joinWaitlist->GetValue() && draft.scheduleIndex >= 0 &&
-        draft.seatCount > m_schedules[static_cast<size_t>(draft.scheduleIndex)].availableSeats;
+    draft.joinWaitlist = m_joinWaitlist->GetValue();
     return draft;
 }
 
@@ -202,5 +221,6 @@ void ReservationDialog::OnSubmit(wxCommandEvent&) {
                      "Payment reference required", wxOK | wxICON_WARNING, this);
         return;
     }
+
     EndModal(wxID_OK);
 }

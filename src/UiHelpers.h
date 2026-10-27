@@ -142,25 +142,34 @@ bool Includes(const std::string& value, const wxString& query) {
 }
 
 bool IsActiveReservation(const ReservationRecord& reservation) {
-    return reservation.status != "Cancelled";
+    return reservation.status != "Cancelled" &&
+           reservation.status != "Waitlist expired" &&
+           reservation.status != "No-show (walk-in release)" &&
+           reservation.status != "Request expired" &&
+           reservation.status != "Rejected by driver";
 }
 
 bool HasAllocatedSeats(const ReservationRecord& reservation) {
     return IsActiveReservation(reservation) && reservation.status != "Waitlisted" &&
-           reservation.seat != "--";
+           reservation.status != "Pending driver approval" && reservation.seat != "--";
 }
 
-bool IsPastDepartureCutoff(const wxString& departure, int minutes) {
+bool ParseDeparture(const wxString& departure, wxDateTime& dateTime) {
     const wxString dateText = departure.BeforeFirst(' ').Strip();
     const wxString timeText = departure.AfterFirst(' ').Strip();
     if (dateText.empty() || timeText.empty()) return false;
-    wxDateTime date;
     wxDateTime time;
-    if (!date.ParseISODate(dateText) || !time.ParseTime(timeText)) return false;
-    date.SetHour(time.GetHour());
-    date.SetMinute(time.GetMinute());
-    date.SetSecond(0);
-    return wxDateTime::Now() >= date.Subtract(wxTimeSpan(0, minutes, 0));
+    if (!dateTime.ParseISODate(dateText) || !time.ParseTime(timeText)) return false;
+    dateTime.SetHour(time.GetHour());
+    dateTime.SetMinute(time.GetMinute());
+    dateTime.SetSecond(0);
+    return true;
+}
+
+bool IsPastDepartureCutoff(const wxString& departure, int minutes) {
+    wxDateTime dateTime;
+    return ParseDeparture(departure, dateTime) &&
+           wxDateTime::Now() >= dateTime.Subtract(wxTimeSpan(0, minutes, 0));
 }
 
 bool IsPaymentCleared(const ReservationRecord& reservation) {

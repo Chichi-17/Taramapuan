@@ -1,6 +1,9 @@
 #pragma once
 
 #include <string>
+#include <map>
+#include <queue>
+#include <stdexcept>
 #include <vector>
 
 struct RouteRecord {
@@ -15,9 +18,9 @@ struct ScheduleRecord {
     std::string driverId;
 };
 
-// TODO [Kevin Miguel A. Antido]: Implement the reservation FIFO queue and hash tables for fast ID lookups;
+// TODO [Alejandro Antonio T. Karunugan]: Implement the reservation FIFO queue and hash tables for fast ID lookups;
 // handle duplicate keys, missing keys, waitlisting, and seat reallocation.
-// TODO [Alejandro Antonio T. Karunugan]: Define and document the system architecture and shared data-structure interfaces;
+// TODO [Kevin Miguel A. Antido]: Define and document the system architecture and shared data-structure interfaces;
 // coordinate queue/hash integration across reservations, schedules, payments, and boarding.
 struct ReservationRecord {
     std::string id, passenger, studentId, route, departure, seat;
@@ -26,6 +29,7 @@ struct ReservationRecord {
     int scheduleIndex{-1};
     std::string paymentReference;
     std::string boardingStatus{"Waiting"};
+    bool waitlistRequested{false};
 };
 
 struct PassengerRecord {
@@ -85,3 +89,40 @@ inline std::vector<DriverRecord> SampleDrivers() {
     };
 }
 
+class ReservationQueue {
+public:
+    void enqueue(const ReservationRecord& record) {
+        if (record.scheduleIndex < 0) {
+            throw std::invalid_argument("Waitlist reservation must have a schedule");
+        }
+        reservations[{record.scheduleIndex, record.departure}].push(record);
+    }
+
+    ReservationRecord front(int scheduleIndex, const std::string& departure) const {
+        const auto queue = reservations.find({scheduleIndex, departure});
+        if (queue == reservations.end() || queue->second.empty()) {
+            throw std::out_of_range("Queue is empty");
+        }
+        return queue->second.front();
+    }
+
+    ReservationRecord dequeue(int scheduleIndex, const std::string& departure) {
+        const ReservationRecord first = front(scheduleIndex, departure);
+        auto& queue = reservations.at({scheduleIndex, departure});
+        queue.pop();
+        if (queue.empty()) reservations.erase({scheduleIndex, departure});
+        return first;
+    }
+
+    bool isEmpty(int scheduleIndex, const std::string& departure) const {
+        const auto queue = reservations.find({scheduleIndex, departure});
+        return queue == reservations.end() || queue->second.empty();
+    }
+
+    void clear() {
+        reservations.clear();
+    }
+
+private:
+    std::map<std::pair<int, std::string>, std::queue<ReservationRecord>> reservations;
+};
